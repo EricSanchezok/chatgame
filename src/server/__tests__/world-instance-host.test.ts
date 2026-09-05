@@ -207,7 +207,20 @@ describe("World Instance host", () => {
       });
       expect(advanced.summary).toMatchObject({ revision: 10, step: 10, participantCount: 0 });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored).toMatchObject({ schemaVersion: 22, experimentEnrollment: null, experimentExclusion: { reason: "no-active-experiment" } });
+      expect(stored).toMatchObject({ schemaVersion: 23, experimentEnrollment: null, experimentExclusion: { reason: "no-active-experiment" } });
+      const inspector = host.inspectorWindow(created.summary.id, { limit: 24 });
+      expect(inspector).toMatchObject({
+        apiVersion: 13,
+        algorithmComposition: {
+          nodeCount: 23,
+          root: {
+            role: "world-execution",
+            id: "eager-reference",
+            version: "16",
+            manifestHash: stored.executionAlgorithm.manifestHash,
+          },
+        },
+      });
       expect(stored.state.history).toHaveLength(10);
       expect(Object.values(stored.runs)).toHaveLength(1);
       expect(Object.values(stored.policyBindings).every((binding) => binding.kind === "model")).toBe(true);
@@ -494,13 +507,19 @@ describe("World Instance host", () => {
         response: { possibleNextActions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored.schemaVersion).toBe(22);
+      expect(stored.schemaVersion).toBe(23);
       expect(stored.experimentEnrollment).toBeNull();
       expect(stored.executionAlgorithm).toMatchObject({
         id: "eager-reference",
-        version: "15",
-        contractVersion: 5,
-        config: { actionCompilationMaxSlots: 12, agentMindMaxSlots: 8, truthBatchMaxSlots: 12, candidateRetrieval: { mode: "off" } },
+        version: "16",
+        contractVersion: 6,
+        config: {},
+        children: {
+          actionCompilation: {
+            role: "action-compilation",
+            children: { candidateSelection: { role: "candidate-selection", id: "full-catalog" } },
+          },
+        },
       });
       expect(stored.state.admissions).toHaveLength(1);
       expect(Object.values(stored.state.truth.meters)).toContainEqual(expect.objectContaining({
@@ -1100,7 +1119,7 @@ describe("World Instance host", () => {
       const source = database.readInstance(created.summary.id).document;
       const legacy = structuredClone(source);
       (legacy as unknown as { schemaVersion: number }).schemaVersion = 17;
-      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v22 required");
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v23 required");
 
       const missingExperimentDecision = structuredClone(source);
       missingExperimentDecision.experimentEnrollment = null;
@@ -1230,7 +1249,7 @@ describe("World Instance host", () => {
       ...DEFAULT_EAGER_REFERENCE_CONFIG,
       candidateRetrieval: {
         mode: "runtime",
-        runtimeVersion: "missing-runtime-fixture",
+        runtimeVersion: "action-compilation-retrieval-runtime-v4",
         encoderFingerprint: `sha256:${"3".repeat(64)}`,
         budgetRatio: 0.2,
       },
@@ -1282,7 +1301,7 @@ describe("World Instance host", () => {
       id: "wrapped-eager",
       version: "1",
       config: {},
-      components: [],
+      children: {},
     });
     class WrappedEager implements WorldExecutionAlgorithm {
       readonly manifest = customManifest;

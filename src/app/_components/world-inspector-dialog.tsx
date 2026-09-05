@@ -66,12 +66,14 @@ import {
 } from "../_lib/world-inspector-preferences";
 import { worldInspectorApi } from "../lib/world-inspector-api-client";
 import { WorldInspectorDetail, type WorldInspectorSelection } from "./world-inspector-detail";
+import { WorldInspectorAlgorithmComposition } from "./world-inspector-algorithm-composition";
 import { WorldInspectorGraph } from "./world-inspector-graph";
 import { WorldInspectorInvocationList, type WorldInspectorInvocationListItem } from "./world-inspector-invocation-list";
 import { WorldInspectorSelect } from "./world-inspector-select";
 import { WorldInspectorTimeline } from "./world-inspector-timeline";
 
 const MemoizedWorldInspectorDetail = memo(WorldInspectorDetail);
+const MemoizedWorldInspectorAlgorithmComposition = memo(WorldInspectorAlgorithmComposition);
 const MemoizedWorldInspectorGraph = memo(WorldInspectorGraph);
 const MemoizedWorldInspectorInvocationList = memo(WorldInspectorInvocationList);
 const MemoizedWorldInspectorTimeline = memo(WorldInspectorTimeline);
@@ -80,7 +82,7 @@ type InspectorDetail =
   | { kind: "step"; value: WorldInspectorStepDetail }
   | { kind: "attempt"; value: WorldInspectorAttemptDetail };
 type ResizablePanel = "actors" | "detail";
-type CenterView = "calls" | WorldInspectorView;
+type CenterView = "calls" | "composition" | WorldInspectorView;
 
 const narrowQuery = "(max-width: 52rem)";
 
@@ -456,7 +458,7 @@ export default function WorldInspectorDialog({
     writeWorldInspectorLayout({
       actorWidth: next.actorWidth ?? actorWidth,
       detailWidth: next.detailWidth ?? detailWidth,
-      view: next.view ?? (view === "calls" ? "timeline" : view),
+      view: next.view ?? (view === "calls" || view === "composition" ? "timeline" : view),
     });
   }, [actorWidth, detailWidth, view]);
 
@@ -472,7 +474,7 @@ export default function WorldInspectorDialog({
 
   const chooseCenterView = useCallback((next: CenterView) => {
     setView(next);
-    if (next !== "calls") persistLayout({ view: next });
+    if (next !== "calls" && next !== "composition") persistLayout({ view: next });
     if (next === "calls") {
       if (selection?.kind !== "invocation") {
         setSelection(null);
@@ -1085,6 +1087,7 @@ export default function WorldInspectorDialog({
           <button aria-pressed={activeView === "calls"} onClick={() => chooseCenterView("calls")} type="button">调用</button>
           <button aria-pressed={activeView === "graph"} onClick={() => chooseView("graph")} type="button">图谱</button>
           <button aria-pressed={activeView === "timeline"} onClick={() => chooseView("timeline")} type="button">流程</button>
+          <button aria-pressed={activeView === "composition"} onClick={() => chooseCenterView("composition")} type="button">算法</button>
         </div>
         <button
           aria-controls="world-inspector-actors"
@@ -1104,8 +1107,8 @@ export default function WorldInspectorDialog({
         </button>
         <form className="cg-inspector-search" onSubmit={(event) => void submitSearch(event)}>
           <Search aria-hidden="true" />
-          <label className="cg-sr-only" htmlFor="world-inspector-search">搜索 Agent、节点、revision 或 public invocation id</label>
-          <input id="world-inspector-search" onChange={(event) => { setQuery(event.target.value); setSearchError(""); }} placeholder="搜索 Agent、节点、revision 或 invocation ID" type="search" value={query} />
+          <label className="cg-sr-only" htmlFor="world-inspector-search">搜索 Agent、算法、节点、revision 或 public invocation id</label>
+          <input id="world-inspector-search" onChange={(event) => { setQuery(event.target.value); setSearchError(""); }} placeholder="搜索 Agent、算法、节点或 invocation ID" type="search" value={query} />
         </form>
         <button
           aria-pressed={followLatest}
@@ -1208,7 +1211,9 @@ export default function WorldInspectorDialog({
                 <button onClick={() => { setReplay(undefined); setReplayPlaying(false); returnToLatest(); }} type="button">退出回放</button>
               </div>
             )}
-            {activeView === "calls" ? (
+            {activeView === "composition" ? (
+              <MemoizedWorldInspectorAlgorithmComposition composition={data.algorithmComposition} query={query} />
+            ) : activeView === "calls" ? (
               <>
                 {loadingInvocation && <p className="cg-inspector-stage__status" role="status">正在读取这次模型调用的完整记录…</p>}
                 {invocationError && <p className="cg-inspector-stage__warning" role="alert">{invocationError}</p>}

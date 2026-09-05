@@ -12,7 +12,7 @@ function runtimeEvent(name: string): WorldInspectorStreamEvent {
     event: {
       id: `event-${name}`,
       event: name,
-      schemaVersion: 3,
+      schemaVersion: 4,
       sequence: 1,
       timestamp: "2026-09-03T00:00:00.000Z",
       level: "info",

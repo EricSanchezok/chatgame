@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { DEFAULT_ALGORITHM_REF, eagerReferenceAlgorithmRef, registerBuiltinAlgorithms } from "../algorithms/registry";
 import { DEFAULT_EAGER_REFERENCE_CONFIG } from "../algorithms/eager-reference/eager-reference";
+import { defineAlgorithmRef, type AlgorithmRef, type AlgorithmRole } from "../algorithms/composition";
 import { WorldExecutionAlgorithmRegistry } from "./execution";
 import {
   AlgorithmExperimentRegistry,
@@ -8,6 +10,21 @@ import {
   experimentAssignmentBucket,
   validateAlgorithmExperimentManifest,
 } from "./experiments";
+
+function replaceChild<R extends AlgorithmRole>(
+  ref: AlgorithmRef<R>,
+  slot: string,
+  child: AlgorithmRef,
+): AlgorithmRef<R> {
+  return defineAlgorithmRef({
+    role: ref.role,
+    id: ref.id,
+    version: ref.version,
+    contractVersion: ref.contractVersion,
+    config: ref.config,
+    children: { ...ref.children, [slot]: child },
+  });
+}
 
 function fixture() {
   const algorithms = registerBuiltinAlgorithms(new WorldExecutionAlgorithmRegistry());
@@ -82,6 +99,54 @@ describe("algorithm experiment registry", () => {
       variants: manifest.variants.map((variant, index) => ({ ...variant, allocationBasisPoints: index === 0 ? 6_999 : 3_000 })),
     })).toThrow(/sum to 10000/u);
     expect(() => validateAlgorithmExperimentManifest({ ...manifest, salt: "changed" })).toThrow(/hash mismatch/u);
+  });
+
+  it("rejects diagnostic algorithms anywhere in an experiment composition", () => {
+    const algorithms = registerBuiltinAlgorithms(new WorldExecutionAlgorithmRegistry());
+    algorithms.registerAlgorithmDefinition({
+      role: "candidate-selection",
+      id: "diagnostic-selector",
+      version: "1",
+      contractVersion: 1,
+      maturity: "diagnostic",
+      configSchema: z.strictObject({}),
+      children: [],
+      create: () => ({
+        algorithmIdentity: {
+          role: "candidate-selection",
+          id: "diagnostic-selector",
+          version: "1",
+          contractVersion: 1,
+        },
+      }),
+    });
+    const diagnosticSelection = defineAlgorithmRef({
+      role: "candidate-selection",
+      id: "diagnostic-selector",
+      version: "1",
+      contractVersion: 1,
+      config: {},
+    });
+    const actionCompilation = replaceChild(
+      DEFAULT_ALGORITHM_REF.children.actionCompilation!,
+      "candidateSelection",
+      diagnosticSelection,
+    );
+    const composition = replaceChild(DEFAULT_ALGORITHM_REF, "actionCompilation", actionCompilation);
+    const manifest = defineAlgorithmExperimentManifest({
+      id: "invalid-diagnostic-experiment",
+      version: "1",
+      salt: "fixture-salt",
+      eligibility: { worldContentHashes: [] },
+      variants: [
+        { id: "control", allocationBasisPoints: 5_000, algorithmRef: DEFAULT_ALGORITHM_REF },
+        { id: "diagnostic", allocationBasisPoints: 5_000, algorithmRef: composition },
+      ],
+      activationEvidence: { artifactHash: `sha256:${"2".repeat(64)}`, verifier: "npm run fixture" },
+    });
+
+    expect(() => new AlgorithmExperimentRegistry(algorithms).register(manifest))
+      .toThrow("root.actionCompilation.candidateSelection algorithm maturity is not allowed");
   });
 
   it("stops only future enrollment after a safety violation", () => {

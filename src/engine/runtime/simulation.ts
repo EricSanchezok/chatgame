@@ -4,6 +4,8 @@ import { CanonicalCommitter } from "./canonical-committer";
 import type {
   ExecutionContext,
   ExecutionTraceWriter,
+  AlgorithmManifest,
+  AlgorithmRef,
   PolicyBinding,
   ExternalReactionInput,
   WorldAdvanceRequest,
@@ -25,6 +27,7 @@ import {
   type RuntimeEvent,
   type RuntimeEventInput,
   type RuntimeObserver,
+  type AlgorithmNodeRuntimeIdentity,
 } from "./observability";
 import { executionStage, type ExecutionStageHooks, type ExecutionStagePosition } from "./stages";
 import { validateModelAudit, validateSimulationState } from "./transaction";
@@ -126,6 +129,73 @@ class ModelWorkAccumulator {
   }
 }
 
+function compositionNodeIdentities(manifest: AlgorithmManifest): ReadonlyMap<string, AlgorithmNodeRuntimeIdentity> {
+  const nodes = new Map<string, AlgorithmNodeRuntimeIdentity>();
+  const visit = (
+    path: string,
+    ref: AlgorithmManifest | AlgorithmRef,
+  ): void => {
+    nodes.set(path, {
+      path,
+      role: ref.role,
+      id: ref.id,
+      version: ref.version,
+      manifestHash: "manifestHash" in ref ? ref.manifestHash : ref.hash,
+    });
+    for (const [slot, child] of Object.entries(ref.children)) visit(`${path}.${slot}`, child);
+  };
+  visit("root", manifest);
+  return nodes;
+}
+
+function algorithmPathForEvent(input: RuntimeEventInput): string {
+  const event = input.event;
+  const modelRole = input.correlation?.modelRole;
+  if (event === "algorithm.eager_reference.slot_batch_completed") {
+    const phase = input.attributes?.phase;
+    if (phase === "action-compilation") return "root.actionCompilation.batching";
+    if (phase === "agent-bootstrap" || phase === "agent-resume" || phase === "agent-mind") {
+      return "root.agentCognition.batching";
+    }
+    if (phase === "observation") return "root.observationRendering.batching";
+    if (typeof phase === "string" && phase.startsWith("truth-")) return "root.truthResolution.batching";
+  }
+  if (event === "algorithm.agent_mind.repair_exhausted" || event === "algorithm.agent_mind.repair_fallback") {
+    return "root.agentCognition.recovery";
+  }
+  if (event === "algorithm.agent_reaction.repair_exhausted" || event === "algorithm.agent_reaction.repair_fallback" ||
+    event === "algorithm.truth_perception.repair_exhausted" || event === "algorithm.truth_perception.repair_fallback") {
+    return "root.reactionResolution.recovery";
+  }
+  if (event === "algorithm.observation.repair_fallback") return "root.observationRendering.recovery";
+  if (event === "algorithm.observation.batch_split") return "root.observationRendering.batching";
+  if (event.includes("action_compilation.retrieval") || event === "model.action_compilation.context.captured") {
+    return "root.actionCompilation.candidateSelection";
+  }
+  if (modelRole === "action-compilation") return "root.actionCompilation";
+  if (modelRole === "action-grounding") return "root.interactionGrounding";
+  if (modelRole === "agent-bootstrap" || modelRole === "agent-mind" || modelRole === "arrival-generator") {
+    return "root.agentCognition";
+  }
+  if (modelRole === "agent-reaction") return "root.reactionResolution.reactionDecision";
+  if (modelRole === "truth-perception") return "root.reactionResolution.onsetPerception";
+  if (modelRole === "observation-renderer") return "root.observationRendering";
+  if (modelRole === "truth-resolution" || modelRole === "truth-transition" ||
+    modelRole === "truth-reaction-routing" || modelRole === "causal-verifier") return "root.truthResolution";
+  const phase = input.attributes?.phase;
+  if (typeof phase === "string") {
+    if (phase.startsWith("agent-")) return "root.agentCognition";
+    if (phase === "action-compilation") return "root.actionCompilation";
+    if (phase === "reaction" || phase === "reaction-preparation") return "root.reactionResolution";
+    if (phase.startsWith("truth-")) return "root.truthResolution";
+    if (phase === "observation") return "root.observationRendering";
+  }
+  if (event.startsWith("algorithm.agent_mind")) return "root.agentCognition";
+  if (event.startsWith("algorithm.agent_reaction")) return "root.reactionResolution.reactionDecision";
+  if (event.startsWith("algorithm.observation")) return "root.observationRendering";
+  return "root";
+}
+
 class AlgorithmRuntimeObserver implements RuntimeObserver {
   readonly critical?: boolean;
   readonly degraded: boolean;
@@ -135,6 +205,7 @@ class AlgorithmRuntimeObserver implements RuntimeObserver {
   constructor(
     private readonly delegate: ScopedTraceWriter,
     private readonly work: ModelWorkAccumulator,
+    private readonly nodes: ReadonlyMap<string, AlgorithmNodeRuntimeIdentity>,
   ) {
     this.mode = delegate.mode;
     this.degraded = delegate.degraded;
@@ -143,13 +214,18 @@ class AlgorithmRuntimeObserver implements RuntimeObserver {
   }
 
   emit(input: RuntimeEventInput): RuntimeEvent | undefined {
+    if (input.algorithm) throw new Error("runtime algorithm node identity is engine-owned");
     if (input.event.startsWith("algorithm.")) {
       validateAlgorithmTelemetryEvent(input);
     } else if (!input.event.startsWith("model.")) {
       throw new Error(`runtime event is engine-owned: ${input.event}`);
     }
-    this.work.observe(input);
-    return this.delegate.emit(input);
+    const path = algorithmPathForEvent(input);
+    const algorithm = this.nodes.get(path) ?? this.nodes.get("root");
+    if (!algorithm) throw new Error(`runtime algorithm node is unavailable: ${path}`);
+    const enriched = { ...input, algorithm };
+    this.work.observe(enriched);
+    return this.delegate.emit(enriched);
   }
 
   flush(): void {
@@ -251,7 +327,7 @@ class TracedExecutionStageHooks implements ExecutionStageHooks {
   }
 }
 
-function createExecutionContext(scope: ModelExecutionScope, source: SimulationState): {
+function createExecutionContext(scope: ModelExecutionScope, source: SimulationState, manifest: AlgorithmManifest): {
   context: ExecutionContext;
   trace: ScopedTraceWriter;
   work: ModelWorkAccumulator;
@@ -260,7 +336,7 @@ function createExecutionContext(scope: ModelExecutionScope, source: SimulationSt
   const observer = scope.observer ?? NOOP_RUNTIME_OBSERVER;
   const trace = new ScopedTraceWriter(executionId, observer, scope.correlation);
   const work = new ModelWorkAccumulator();
-  const algorithmObserver = new AlgorithmRuntimeObserver(trace, work);
+  const algorithmObserver = new AlgorithmRuntimeObserver(trace, work, compositionNodeIdentities(manifest));
   const modelScope: ModelExecutionScope = {
     ...scope,
     correlation: { ...scope.correlation, executionId },
@@ -480,7 +556,7 @@ export class SimulationEngine {
       workloadId: `simulation:${source.worldId}`,
       batchId: `bootstrap:${source.revision}`,
     };
-    const { context, trace, work } = createExecutionContext(executionScope, source);
+    const { context, trace, work } = createExecutionContext(executionScope, source, this.algorithm.manifest);
     const resources = resourceBaseline();
     const startedAt = Date.now();
     trace.emit({
@@ -575,7 +651,7 @@ export class SimulationEngine {
       workloadId: `simulation:${source.worldId}`,
       batchId: `step:${source.revision}:${source.step + 1}`,
     };
-    const { context, trace, work } = createExecutionContext(executionScope, source);
+    const { context, trace, work } = createExecutionContext(executionScope, source, this.algorithm.manifest);
     const resources = resourceBaseline();
     const startedAt = Date.now();
     const eligibleAgentIds = decisionEligibleAgentIds(
@@ -737,7 +813,7 @@ export class SimulationEngine {
       workloadId: `simulation:${source.worldId}`,
       batchId: `prepare:${source.revision}:${source.step + 1}`,
     };
-    const { context, trace } = createExecutionContext(executionScope, source);
+    const { context, trace } = createExecutionContext(executionScope, source, this.algorithm.manifest);
     const eligibleAgentIds = decisionEligibleAgentIds(
       source,
       request.externalActions.map((action) => action.agentId),

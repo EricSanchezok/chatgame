@@ -1,7 +1,7 @@
 import type { ActionCompilationDraft } from "../../runtime/execution";
 import type { ActionCompilationModelOutput, ActionCompilationCausalAssertion } from "../../contracts/llm-schemas";
 import type { ModelSymbolRepairAudit, SimulationState } from "../../contracts/model";
-import { repairSymbol } from "../../contracts/symbol-repair";
+import { repairSymbol, type SymbolRepairPolicy } from "../../contracts/symbol-repair";
 import {
   isProposalReference,
   type ExistingReferenceHandle,
@@ -37,6 +37,7 @@ export function preprocessActionCompilationSymbols(input: {
   value: unknown;
   resolver: ActionCompilationReferenceResolver;
   allowedCandidateKeysBySlot?: ReadonlyMap<number, readonly string[]>;
+  policy?: Readonly<SymbolRepairPolicy>;
 }): { value: unknown; symbolRepairs: ModelSymbolRepairAudit[] } {
   const value = structuredClone(input.value);
   const symbolRepairs: ModelSymbolRepairAudit[] = [];
@@ -64,6 +65,7 @@ export function preprocessActionCompilationSymbols(input: {
     const result = repairSymbol({
       value: raw,
       candidates,
+      ...(input.policy ? { policy: input.policy } : {}),
       context: {
         domain: "candidate-key",
         path: [...path],

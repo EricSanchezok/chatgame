@@ -5,7 +5,7 @@ Status: Implemented
 
 ## Intent
 
-Persist Action Compilation candidate embeddings across process restarts and world instances without writing derived data into a world package, and provide a reusable instance-level experiment boundary for future world-execution algorithms. Candidate Retrieval remains disabled by default and cannot be activated until its immutable evaluation evidence passes the declared gates.
+Persist Action Compilation candidate embeddings across process restarts and world instances without writing derived data into a world package, and provide a reusable instance-level experiment boundary for future world-execution Algorithms. The default `candidate-selection/full-catalog@1` Algorithm does not load the retrieval runtime; a graph treatment cannot be activated until its immutable evaluation evidence passes the declared gates.
 
 ## Contract
 
@@ -13,7 +13,7 @@ Local encoder assets and derived vectors live under `LIVINGWORLD_CACHE_ROOT`, wh
 
 Action Compilation retrieval consumes the current full context rather than a benchmark dataset. It applies one strict budget to the physical batch, exposes only the joint shortlist to the model, restricts symbol repair to the current slot shortlist, and rejects a valid key that is outside that slot before authoritative FullCatalog materialization. The existing resolver, semantic validation, transaction, and commit boundaries remain authoritative, and no FullCatalog retry is introduced.
 
-World-execution experiments use immutable manifests and deterministic 10,000-bucket instance assignment. An instance persists its enrollment and concrete variant `AlgorithmRef`; it never changes variants between invocations or restarts. One active experiment is allowed in the world-execution layer, explicit algorithm tuning is excluded, unavailable manifests fail closed, and ordinary public world DTOs do not expose experiment or model configuration. Candidate Retrieval has no active treatment while its offline evidence remains below the recall and physical-batch compression gates.
+World-execution experiments use immutable manifests and deterministic 10,000-bucket instance assignment. An instance persists its enrollment and complete recursive variant Composition; it never changes variants between invocations or restarts. One active experiment is allowed in the world-execution layer, explicit algorithm tuning is excluded, unavailable manifests fail closed, and ordinary public world DTOs do not expose experiment or model configuration. Graph candidate selection has no active treatment while its offline evidence remains below the recall and physical-batch compression gates.
 
 The engine persists assignment, cache, shortlist, membership-rejection, repair, provider, and terminal outcome evidence in the Ledger. Trusted local inspection and read-only reports may expose that evidence. Any accepted invalid, private, or out-of-shortlist reference, cache integrity failure, manifest drift, or replay/state mismatch halts new enrollment without changing existing instance variants.
 

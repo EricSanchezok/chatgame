@@ -67,7 +67,7 @@ function treatmentRef() {
     ...DEFAULT_EAGER_REFERENCE_CONFIG,
     candidateRetrieval: {
       mode: "runtime",
-      runtimeVersion: "fixture-runtime-v1",
+      runtimeVersion: "action-compilation-retrieval-runtime-v4",
       encoderFingerprint: ENCODER_FINGERPRINT,
       budgetRatio: 0.2,
     },

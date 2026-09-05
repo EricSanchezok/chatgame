@@ -46,6 +46,10 @@ import type { WorldInstanceDocument } from "./world-instance-types";
 
 const WORLD_LANE_ID = "world";
 
+function algorithmNodeCount(ref: WorldInstanceDocument["executionAlgorithm"]): number {
+  return 1 + Object.values(ref.children).reduce((total, child) => total + algorithmNodeCount(child), 0);
+}
+
 function diagnosticErrorMessage(error: RuntimeError): string {
   const nested = [
     ...(error.errors ?? []).map(diagnosticErrorMessage),
@@ -1387,6 +1391,10 @@ export function buildWorldInspectorWindow(
   }
   return {
     apiVersion: WORLD_INSPECTOR_API_VERSION,
+    algorithmComposition: {
+      root: structuredClone(document.executionAlgorithm),
+      nodeCount: algorithmNodeCount(document.executionAlgorithm),
+    },
     instance: {
       id: document.id,
       title: document.title,

@@ -68,7 +68,7 @@ function parseArgs(argv: readonly string[]): Options {
   const options: Options = {
     operation,
     cacheRoot: livingWorldCacheRoot(),
-    database: path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v22", "livingworld.sqlite"),
+    database: path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v23", "livingworld.sqlite"),
   };
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index]!;

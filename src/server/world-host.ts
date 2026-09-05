@@ -31,7 +31,7 @@ import { createModelGateway } from "../engine/models/model-gateway";
 import { createModelFetchResolver } from "../engine/models/model-network";
 import { contentHash } from "../engine/models/model-audit";
 import { AlgorithmExperimentRegistry } from "../engine/runtime/experiments";
-import type { ActionCompilationRetrievalRuntime } from "../engine/algorithms/eager-reference/candidate-retrieval/runtime";
+import type { CandidateSelectionCapability } from "../engine/algorithms/roles";
 import { ModelRegistry } from "../engine/models/model-registry";
 import {
   modelInvocationCorrelation,
@@ -256,7 +256,7 @@ export interface WorldHostOptions {
   ledger?: ExecutionLedger;
   algorithmRegistry?: WorldExecutionAlgorithmRegistry;
   experimentRegistry?: AlgorithmExperimentRegistry;
-  actionCompilationRetrievalRuntimes?: ReadonlyMap<string, ActionCompilationRetrievalRuntime>;
+  actionCompilationRetrievalRuntimes?: ReadonlyMap<string, CandidateSelectionCapability>;
   experimentVariantPreflights?: ReadonlyMap<string, (input: {
     worldContentHash: string;
     state: Readonly<SimulationState>;
@@ -626,7 +626,7 @@ export class WorldHost {
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v22",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v23",
       );
       const modelRegistry = new ModelRegistry(catalog, dataRoot);
       modelRegistry.startBackgroundRefresh();
@@ -732,15 +732,18 @@ export class WorldHost {
     return {
       provider: this.options.provider,
       rulePackages: this.options.repository.rulePackages,
-      ...(retrieval ? { actionCompilationRetrieval: retrieval } : {}),
+      ...(retrieval ? {
+        resources: {
+          resolve<T>(kind: string): T | undefined {
+            return kind === "candidate-selection-runtime" ? retrieval as T : undefined;
+          },
+        },
+      } : {}),
     };
   }
 
   private requiresActionCompilationRetrieval(ref: AlgorithmRef): boolean {
-    const config = ref.config as Record<string, unknown>;
-    const retrieval = config.candidateRetrieval;
-    return Boolean(retrieval && typeof retrieval === "object" && !Array.isArray(retrieval) &&
-      (retrieval as Record<string, unknown>).mode === "runtime");
+    return ref.children.actionCompilation?.children.candidateSelection?.id === "graph-hybrid-e5";
   }
 
   private assertExecutionAlgorithmAvailable(document: WorldInstanceDocument): void {
@@ -1097,7 +1100,7 @@ export class WorldHost {
     }
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 22,
+      schemaVersion: 23,
       id,
       world: toWorldRuntimeContract(definition),
       executionAlgorithm: structuredClone(experiment.algorithmRef),

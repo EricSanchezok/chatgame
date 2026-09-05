@@ -23,13 +23,18 @@ import type {
 import {
   eagerRequestBytes,
   eagerSlotBatchOwner,
+  DEFAULT_EAGER_OUTPUT_RECOVERY,
   EagerSlotAttemptError,
   isTerminalEagerModelError,
   runEagerSlotBatches,
   type EagerSlot,
   type EagerSlotAttemptLineage,
-  type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
+import type {
+  AgentCognitionBatchInput,
+  AgentCognitionBatchResult,
+  OutputRecoveryCapability,
+} from "../roles";
 import {
   modelInvocationCorrelation,
   modelInvocationLogicalId,
@@ -484,27 +489,7 @@ function validateReactionDecision(
   };
 }
 
-export interface AgentMindBatchInput {
-  agent: AgentState;
-  observations: readonly ObservationPacket[];
-  currentResolution: {
-    action: AgentActionProposal | null;
-    outcome: {
-      status: "succeeded" | "partial" | "failed" | "blocked" | "continuing";
-    } | null;
-  };
-  events: readonly WorldEvent[];
-}
-
-export interface AgentMindBatchResult {
-  outputs: Map<string, AgentMindOutput>;
-  failures: Array<{ agentId: string; error: unknown }>;
-  modelAudits: ModelExecutionAudit[];
-  batchCount: number;
-  metrics: EagerSlotBatchMetrics;
-}
-
-type AgentMindSlot = EagerSlot<AgentMindBatchInput, PromptValidationIssue>;
+type AgentMindSlot = EagerSlot<AgentCognitionBatchInput, PromptValidationIssue>;
 
 function agentMindBatchContext(
   state: SimulationState,
@@ -567,16 +552,16 @@ function assertAgentMindSlotCoverage(
 export class AgentMind {
   constructor(
     private readonly provider: StructuredModelProvider,
-    private readonly repairAttempts = 2,
+    private readonly recovery: Readonly<OutputRecoveryCapability> = DEFAULT_EAGER_OUTPUT_RECOVERY,
   ) {}
 
   async thinkBatch(
     state: SimulationState,
-    inputs: readonly AgentMindBatchInput[],
+    inputs: readonly AgentCognitionBatchInput[],
     scope: ModelExecutionScope,
     purpose: "bootstrap" | "mind" | "resume" = "mind",
     maxSlots = 1,
-  ): Promise<AgentMindBatchResult> {
+  ): Promise<AgentCognitionBatchResult> {
     if (inputs.length === 0) {
       return {
         outputs: new Map(),
@@ -611,7 +596,7 @@ export class AgentMind {
         ),
         label: `AgentMind ${purpose}`,
         issuesForError: (error) => validationIssues(error),
-        maxRepairs: this.repairAttempts,
+        recovery: this.recovery,
         invoke: async (batch, attempt, lineage: EagerSlotAttemptLineage) => {
           const owner = eagerSlotBatchOwner(`agent-mind-${purpose}`, batch);
           const identity = modelInvocationIdentity(scope, role, owner, attempt + 1);
@@ -839,7 +824,7 @@ export class AgentMind {
         role: "agent-reaction",
         repairScope: "slot",
         targetIds: [agent.id],
-        maxRepairs: this.repairAttempts,
+        maxRepairs: this.recovery.maxRepairs,
         logicalInvocationId,
         invoke: async (repairContext) => {
         const contextStartedAt = Date.now();

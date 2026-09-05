@@ -34,7 +34,7 @@ function fixture() {
     ...DEFAULT_EAGER_REFERENCE_CONFIG,
     candidateRetrieval: {
       mode: "runtime",
-      runtimeVersion: "fixture-runtime-v1",
+      runtimeVersion: "action-compilation-retrieval-runtime-v4",
       encoderFingerprint: fingerprint,
       budgetRatio: 0.2,
     },

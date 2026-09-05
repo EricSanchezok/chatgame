@@ -2,7 +2,7 @@
 
 ## 状态边界
 
-`SimulationState` v15 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan、模型执行审计与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v22 在其外层固定带 opaque config 的 `AlgorithmRef` 与不可变实验归属或排除原因，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v4 artifact、调度配置和 WorldRun。
+`SimulationState` v15 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan、模型执行审计与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v23 在其外层固定完整递归算法 Composition 与不可变实验归属或排除原因，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v5 artifact、调度配置和 WorldRun。
 
 真人与自主主体使用同一个 `AgentState`。策略表必须精确覆盖全部 Agent：
 
@@ -36,7 +36,7 @@ Grounding 在同一次调用中生成 footprint 和 claims。分配器把 active
 
 终止 disposition 释放全部 claims，pause 按定义保留或释放。每次正时间提交先应用 disposition，再按相互连接的 pool 划分 FIFO 分量；每个分量遇到第一个无法完整满足的队首就停止，其他不相连分量仍可推进。满足者转为 `ready` 并持有原子 reservation，在下一次普通正时间步骤重新验证 assertions 后从当前 canonical 时间物化新 TemporalPlan；排队时间不回填进度。Entity retirement 或 capacity decrease 只有在同一 Candidate 释放足够 holder 时才合法。
 
-`eager-reference@15` 的阶段如下：
+`eager-reference@16` 是 `world-execution` 根 Algorithm；它组合认知、行动编译、候选选择、符号修复、交互 grounding、反应、Truth、Observation、批处理、调度和恢复等子 Role。完整替换边界、命名与开发流程见[算法系统](algorithm-system.md)。其阶段如下：
 
 Truth Engine 的独立 interaction components 在 resolution、plan verification、transition、causal verification 与 observation 阶段使用固定 `truthBatchMaxSlots`（默认 12）slot batch。共享上下文完整发送一次，slot 仍独立校验、repair、审计和 replay；真实 global 或无法证明独立的分量保持原有全局路径。完整 batch 超过模型输入上限直接返回 `ContextLimitExceeded`，不缩小或裁剪上下文。
 
@@ -53,7 +53,7 @@ Action Compilation 与 AgentMind 在算法内部使用独立上限的槽位批�
 9. Observation Renderer 根据 transition 后状态、事件和 interaction audience 生成固定槽位 observation；reject、入队、预留、开始和争用结果不维护第二套叙事事实。onset `keep` 可以让 Activity 在接收本次刺激后继续；没有预警的相关结果则可在同一提交中暂停 Activity。只有已解除 active 占用的真正决策点才允许运行 AgentMind。
 10. CanonicalCommitter 重新应用 Candidate v5，并独立重建 source hash、最早边界、四类 interaction nodes、affected Activity 集、claims、holder 释放、admissions、FIFO promotion、dispositions、assertion evidence、统一 Observation 和全部 canonical 不变量，随后构造 `CommittedStep` 与下一状态。
 
-算法不持有状态写入能力，也不能定义稳定事件或指标语义。Execution Contract v5 将一步拆为可 JSON 持久化的 Preparation v4 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、带配置 manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v3 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生。
+算法不持有状态写入能力，也不能定义稳定事件或指标语义。Execution Contract v6 将一步拆为可 JSON 持久化的 Preparation v5 `prepareStep` 与 `completeStep`；`sourceStateHash`、request、递归 manifest、policy roster 或候选与当前 source 不一致时完成或提交失败。Runtime event schema v4 的 lifecycle、temporal 与 resolution 事件由引擎从验证后的输入和候选派生，并自动带上对应 Composition 节点的 path、Role、id、version 与 manifest hash。
 
 ## Truth 与随机承诺
 
@@ -134,6 +134,6 @@ Origin 准入引用一个 Entity Mechanics Profile，确定性创建 Entity、Ag
 
 提交内核校验：状态 schema、revision、TemporalBoundary、TemporalPlan 权威来源、Activity/Timer snapshot、共享资源 pool/claim provenance/capacity/holder/queue/promotion、行动、ResolutionPlan、ResolutionReceipt 与 outcome 一一覆盖、计划和 d20 的确定性派生、收据与可信操作绑定、唯一 Condition/time settlement、随机顺序、causal refs、断言、世界引用、守恒、范围、placement、observation 权限、决策资格、mind commit 覆盖、RNG 连续性、semantic hash 与历史 replay。
 
-成功步骤的实例 CAS、WorldRun 更新与 execution terminal record 在一个 SQLite 事务中完成。失败、暂停、超时和迟到结果只更新运行或 execution 诊断，不改变 canonical revision。canonical history replay 从每个 CommittedStep 恢复完整 temporal snapshot，验证持久计划、收据、随机承诺和可信操作，且不调用模型或重新裁决语义；recorded execution replay 从 Execution Ledger 的 producer manifest 恢复 `AlgorithmRef`，经同一 registry 构造算法，再消费原始结构化响应并运行固定提交内核。
+成功步骤的实例 CAS、WorldRun 更新与 execution terminal record 在一个 SQLite 事务中完成。失败、暂停、超时和迟到结果只更新运行或 execution 诊断，不改变 canonical revision。canonical history replay 从每个 CommittedStep 恢复完整 temporal snapshot，验证持久计划、收据、随机承诺和可信操作，且不调用模型或重新裁决语义；recorded execution replay 从 Execution Ledger 的 producer manifest 恢复完整递归 Composition，经同一 registry 解析每个节点，再消费原始结构化响应并运行固定提交内核。
 
 相关边界见[系统架构](../architecture.md)、[剧本格式](script-format.md)、[Execution Ledger](runtime-observability.md)和[表现层](presentation.md)。

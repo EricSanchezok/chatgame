@@ -9,7 +9,7 @@ import type {
 import { WorldInspectorDetail } from "./world-inspector-detail";
 
 const event: WorldInspectorRuntimeEventSummary = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   sequence: 1,
   timestamp: "2026-09-03T04:13:30.000Z",
   level: "error",

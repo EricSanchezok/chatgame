@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerBuiltinAlgorithms } from "../../src/engine/algorithms/registry";
-import { WorldExecutionAlgorithmRegistry } from "../../src/engine/runtime/execution";
+import { WorldExecutionAlgorithmRegistry, type AlgorithmRef } from "../../src/engine/runtime/execution";
 import { loadAlgorithmExperimentRegistry } from "../../src/server/experiment-catalog";
 import { verifyExperimentActivationEvidence } from "../../src/server/experiment-activation";
 import { LocalDatabase } from "../../src/server/local-database";
@@ -32,7 +32,7 @@ function parseArgs(argv: readonly string[]): Options {
   let experimentId = "";
   let version: string | undefined;
   let catalog = path.resolve(process.env.LIVINGWORLD_EXPERIMENT_CATALOG_PATH ?? "config/experiments.json");
-  let database = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v22", "livingworld.sqlite");
+  let database = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v23", "livingworld.sqlite");
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--experiment") experimentId = required(argv, ++index, argument);
@@ -57,11 +57,8 @@ function selectedManifest(options: Options) {
   return matches[0]!;
 }
 
-function actionCompilationCohort(algorithmConfig: unknown): "fullcatalog-control" | "retrieval-treatment" {
-  if (!algorithmConfig || typeof algorithmConfig !== "object" || Array.isArray(algorithmConfig)) return "fullcatalog-control";
-  const retrieval = (algorithmConfig as Record<string, unknown>).candidateRetrieval;
-  return retrieval && typeof retrieval === "object" && !Array.isArray(retrieval) &&
-    (retrieval as Record<string, unknown>).mode === "runtime"
+function actionCompilationCohort(ref: AlgorithmRef): "fullcatalog-control" | "retrieval-treatment" {
+  return ref.children.actionCompilation?.children.candidateSelection?.id === "graph-hybrid-e5"
     ? "retrieval-treatment"
     : "fullcatalog-control";
 }
@@ -100,7 +97,7 @@ export function buildExperimentReport(options: Pick<Options, "experimentId" | "v
     }> = {};
     for (const { document } of instances) {
       const enrollment = document.experimentEnrollment!;
-      const cohortKind = actionCompilationCohort(enrollment.algorithmRef.config);
+      const cohortKind = actionCompilationCohort(enrollment.algorithmRef);
       const cohort = variants[enrollment.variantId] ?? {
         cohort: cohortKind,
         instances: 0,

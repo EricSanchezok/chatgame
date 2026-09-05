@@ -1,5 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { loadWorldScript } from "../../../script/world-loader";
 import {
   algorithmRef,
@@ -21,7 +22,7 @@ import { createTestModelCatalog } from "../../testing/model-provider";
 const fixture = path.resolve("test/fixtures/open-world-script");
 
 function algorithmManifest(id = "mutation-probe"): AlgorithmManifest {
-  return defineAlgorithmManifest({ id, version: "1", config: {}, components: [] });
+  return defineAlgorithmManifest({ id, version: "1", config: {}, children: {} });
 }
 
 class MutatingAlgorithm implements WorldExecutionAlgorithm {
@@ -81,13 +82,17 @@ describe("execution kernel boundary", () => {
       id: "configured",
       version: "1",
       config,
-      components: [],
+      children: {},
     });
     registry.registerDefinition({
+      role: "world-execution",
       id: "configured",
       version: "1",
-      manifest: configuredManifest,
-      create: (config) => new MutatingAlgorithm(configuredManifest(config)),
+      contractVersion: 6,
+      maturity: "diagnostic",
+      configSchema: z.strictObject({ slots: z.number().int().positive() }),
+      children: [],
+      create: ({ ref }) => new MutatingAlgorithm(configuredManifest(ref.config)),
     });
     const first = algorithmRef(configuredManifest({ slots: 2 }));
     const second = algorithmRef(configuredManifest({ slots: 7 }));
@@ -104,22 +109,13 @@ describe("execution kernel boundary", () => {
       id: "invalid-json",
       version: "1",
       config: { callback: (() => undefined) as never },
-      components: [],
+      children: {},
     })).toThrow("JSON-safe");
-    expect(() => defineAlgorithmManifest({
-      id: "duplicate-components",
-      version: "1",
-      config: {},
-      components: [
-        { id: "same", version: "1", config: {} },
-        { id: "same", version: "2", config: {} },
-      ],
-    })).toThrow("duplicate component id");
     expect(() => defineAlgorithmManifest({
       id: "blank-version",
       version: " ",
       config: {},
-      components: [],
+      children: {},
     })).toThrow("version is required");
     const symbolConfig = { visible: true } as Record<PropertyKey, unknown>;
     symbolConfig[Symbol("hidden")] = "not-hashed";
@@ -127,7 +123,7 @@ describe("execution kernel boundary", () => {
       id: "symbol-config",
       version: "1",
       config: symbolConfig as never,
-      components: [],
+      children: {},
     })).toThrow("symbol keys");
     const hiddenConfig = {};
     Object.defineProperty(hiddenConfig, "hidden", { value: true, enumerable: false });
@@ -135,8 +131,13 @@ describe("execution kernel boundary", () => {
       id: "hidden-config",
       version: "1",
       config: hiddenConfig,
-      components: [],
+      children: {},
     })).toThrow("enumerable data property");
+    const valid = algorithmManifest("extra-field");
+    expect(() => new WorldExecutionAlgorithmRegistry().register(
+      { ...valid, uncommittedMetadata: true } as never,
+      () => new MutatingAlgorithm(valid),
+    )).toThrow("manifest fields must be exactly");
   });
 
   it("rejects unsupported contracts, unknown hashes, and wrong factory manifests", () => {
@@ -152,7 +153,7 @@ describe("execution kernel boundary", () => {
     expect(() => registry.create({
       ...algorithmRef(registered),
       manifestHash: "sha256:unknown",
-    }, { provider: {} as never })).toThrow("manifest is not registered");
+    }, { provider: {} as never })).toThrow("manifest hash mismatch");
 
     const incompleteManifest = algorithmManifest("incomplete");
     const incompleteRegistry = new WorldExecutionAlgorithmRegistry();

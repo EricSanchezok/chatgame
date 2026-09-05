@@ -18,7 +18,7 @@ English is the working language for new governance artifacts and code. Existing 
 
 ## Configuration
 
-- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v22/`. World versions, World Instances, WorldRuns, reaction preparations, model-registry snapshots, debug checkpoints, and the Execution Ledger share the data root; the SQLite records live in `livingworld.sqlite`. World Instance schema v22 embeds SimulationState v15, its pinned algorithm reference, and immutable experiment enrollment or exclusion; it does not read older saves, so use a new data root for another format.
+- `LIVINGWORLD_DATA_ROOT` selects the local data directory and defaults to `.livingworld-v23/`. World versions, World Instances, WorldRuns, reaction preparations, model-registry snapshots, debug checkpoints, and the Execution Ledger share the data root; the SQLite records live in `livingworld.sqlite`. World Instance schema v23 embeds SimulationState v15, its pinned recursive algorithm Composition, and immutable experiment enrollment or exclusion; it does not read older saves, so use a new data root for another format.
 - `LIVINGWORLD_CACHE_ROOT` selects disposable local model and embedding data and defaults to `.livingworld-cache/`. It is separate from canonical state and benchmark source captures. Candidate vectors are partitioned by world content hash and encoder fingerprint, so one warm cache is reused by every unchanged instance and process.
 - `LIVINGWORLD_EXPERIMENT_CATALOG_PATH` selects the server-only typed experiment catalog and defaults to `config/experiments.json`. The catalog contains no active experiment by default.
 - `LIVINGWORLD_MODEL_CATALOG_PATH` selects the complete model catalog and defaults to `config/models.yaml`.
@@ -49,7 +49,9 @@ Use `npm run experiment:run -- --agents 1,10,50,1000 --steps 1` for the determin
 
 For any local failure, use the CLI-first [debugging reference](debugging.md). `npm run debug:doctor` checks the active Ledger and its rebuildable lookup projections; `debug find` accepts execution, invocation, request, trace, span, event, artifact, and diagnostic identifiers without manual SQL.
 
-Algorithm selection and opaque configuration are immutable internal instance settings. Execution Contract v5 provides `bootstrap`, persistable Preparation v4 through `prepareStep`, and `completeStep`; new algorithms register a versioned, JSON-safe definition that derives a manifest and implementation from configuration, while stable telemetry and commit validation remain engine-owned. The built-in `eager-reference@15` defaults Action Compilation to twelve slots, AgentMind to eight, Reaction to eight, Action Grounding to sixteen, Truth Engine fixed batches to twelve, and Candidate Retrieval to `off`, and remains the explicit FullCatalog experiment default.
+Algorithm selection is an immutable internal instance setting. Execution Contract v6 keeps `bootstrap`, persistable Preparation v5 through `prepareStep`, and `completeStep` at the root while a complete recursive Composition pins the replaceable child Algorithms. The built-in `eager-reference@16` defaults Action Compilation to twelve slots, AgentMind to eight, Reaction to eight, Action Grounding to sixteen, Truth Engine fixed batches to twelve, and the explicit `candidate-selection/full-catalog@1` child. [Algorithm system](game-design/algorithm-system.md) owns Role contracts, naming, maturity, authoring, and the registry boundary.
+
+Use `npm run algorithms -- list` for the complete runtime and benchmark inventory, `npm run algorithms -- describe <role/id@version>` for one definition, `npm run algorithms -- validate` for the default and experiment Compositions, and `npm run algorithms -- diff <left.json> <right.json>` for behavior identity changes. Run `npm run algorithms -- catalog` after registration changes; `npm run check:fast` rejects catalog or dependency-boundary drift.
 
 ### Local retrieval cache
 

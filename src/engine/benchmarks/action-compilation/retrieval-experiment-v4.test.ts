@@ -30,7 +30,7 @@ describe("retrieval v4 evaluation", () => {
       algorithm: "fixture-runtime",
       runtime: {
         version: "fixture",
-        role: "action-compilation",
+        role: "candidate-selection",
         async retrieveBatch() {
           return {
             modelContext: {},

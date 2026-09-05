@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ModelExecutionAudit } from "../../contracts/model";
+import type { AlgorithmBatchMetrics, OutputRecoveryCapability } from "../roles";
 import { contentHash } from "../../models/model-audit";
 import {
   ModelConfigurationError,
@@ -27,21 +28,12 @@ export interface EagerSlotBatchFailure<TPayload, TIssue> {
   audit?: ModelExecutionAudit;
 }
 
-export interface EagerSlotBatchMetrics {
-  submittedSlots: number;
-  repairCalls: number;
-  repeatedFingerprints: number;
-  splitCount: number;
-  partialFailureSlots: number;
-  singletonFailures: number;
-}
-
 export interface EagerSlotBatchResult<TResult, TPayload, TIssue> {
   results: Map<string, TResult>;
   audits: ModelExecutionAudit[];
   failures: Array<EagerSlotBatchFailure<TPayload, TIssue>>;
   batchCount: number;
-  metrics: EagerSlotBatchMetrics;
+  metrics: AlgorithmBatchMetrics;
 }
 
 export interface EagerSlotAttemptLineage {
@@ -50,6 +42,12 @@ export interface EagerSlotAttemptLineage {
   parentInvocationId?: string;
   repairOf?: string;
 }
+
+export const DEFAULT_EAGER_OUTPUT_RECOVERY: Readonly<OutputRecoveryCapability> = Object.freeze({
+  maxRepairs: 2,
+  exhaustion: "fail-step" as const,
+  splitAt: (slotCount: number) => Math.ceil(slotCount / 2),
+});
 
 export class EagerSlotAttemptError extends Error {
   constructor(
@@ -105,9 +103,12 @@ export function partitionEagerSlots<TPayload, TIssue>(input: {
 
 export function splitEagerSlots<TPayload, TIssue>(
   slots: readonly EagerSlot<TPayload, TIssue>[],
+  splitAt = Math.ceil(slots.length / 2),
 ): [Array<EagerSlot<TPayload, TIssue>>, Array<EagerSlot<TPayload, TIssue>>] {
-  const middle = Math.ceil(slots.length / 2);
-  return [slots.slice(0, middle), slots.slice(middle)];
+  if (!Number.isSafeInteger(splitAt) || splitAt < 1 || splitAt >= slots.length) {
+    throw new RangeError(`eager slot recovery split must be inside a ${slots.length}-slot batch`);
+  }
+  return [slots.slice(0, splitAt), slots.slice(splitAt)];
 }
 
 export function eagerSlotBatchOwner<TPayload, TIssue>(
@@ -161,11 +162,15 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
   issuesForError(error: unknown, slot: EagerSlot<TPayload, TIssue>): TIssue[];
   issueFingerprint?: (issue: TIssue) => string;
   label: string;
-  maxRepairs?: number;
+  recovery?: Readonly<OutputRecoveryCapability>;
 }): Promise<EagerSlotBatchResult<TResult, TPayload, TIssue>> {
-  const maxRepairs = input.maxRepairs ?? 2;
+  const recovery = input.recovery ?? DEFAULT_EAGER_OUTPUT_RECOVERY;
+  const maxRepairs = recovery.maxRepairs;
   if (!Number.isSafeInteger(maxRepairs) || maxRepairs < 0) {
     throw new RangeError("eager slot batch maxRepairs must be a non-negative integer");
+  }
+  if (recovery.exhaustion !== "fail-step" || typeof recovery.splitAt !== "function") {
+    throw new Error("eager slot batch requires a fail-step output recovery capability");
   }
   const recover = async (
     sourceSlots: readonly EagerSlot<TPayload, TIssue>[],
@@ -184,7 +189,7 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
     const results = new Map<string, TResult>();
     const audits: ModelExecutionAudit[] = [];
     let batchCount = 0;
-    const metrics: EagerSlotBatchMetrics = {
+    const metrics: AlgorithmBatchMetrics = {
       submittedSlots: 0,
       repairCalls: 0,
       repeatedFingerprints: 0,
@@ -299,7 +304,10 @@ export async function runEagerSlotBatches<TPayload, TIssue, TResult>(input: {
         metrics,
       };
     }
-    const recovered = mergeBatchResults(await Promise.all(splitEagerSlots(pending).map((batch) => recover(batch, {
+    const recovered = mergeBatchResults(await Promise.all(splitEagerSlots(
+      pending,
+      recovery.splitAt(pending.length),
+    ).map((batch) => recover(batch, {
       logicalInvocationId: lineageState.logicalInvocationId,
       baseAttempt: previousSemanticAttempt + 1,
       ...(previousInvocationId ? { parentInvocationId: previousInvocationId } : {}),

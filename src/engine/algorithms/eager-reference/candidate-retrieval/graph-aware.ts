@@ -46,12 +46,15 @@ export interface GraphAwareRetrieverOptions {
   allowDiagnosticBudget?: boolean;
 }
 
-export type GraphAwareStrategy =
-  | "graph-one-hop"
-  | "graph-role"
-  | "graph-hybrid"
-  | "graph-encoder"
-  | "graph-learned";
+export const GRAPH_AWARE_CANDIDATE_SELECTION_STRATEGIES = [
+  "graph-one-hop",
+  "graph-role",
+  "graph-hybrid",
+  "graph-encoder",
+  "graph-learned",
+] as const;
+
+export type GraphAwareStrategy = typeof GRAPH_AWARE_CANDIDATE_SELECTION_STRATEGIES[number];
 
 export interface GraphRankerModel {
   schemaVersion: typeof GRAPH_FEATURE_SCHEMA_VERSION;

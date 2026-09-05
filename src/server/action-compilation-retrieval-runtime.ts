@@ -10,9 +10,10 @@ import {
   type LocalEncoderRuntime,
 } from "../engine/algorithms/eager-reference/candidate-retrieval/local-encoder";
 import {
+  ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
   createActionCompilationRetrievalRuntime,
-  type ActionCompilationRetrievalRuntime,
 } from "../engine/algorithms/eager-reference/candidate-retrieval/runtime";
+import type { CandidateSelectionCapability } from "../engine/algorithms/roles";
 import { ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION } from "../engine/algorithms/eager-reference/candidate-retrieval/graph-aware";
 import { actionCompilationPassagesForState } from "../engine/algorithms/eager-reference/candidate-retrieval/warmup";
 import type { SimulationState } from "../engine/contracts/model";
@@ -31,33 +32,33 @@ function loadEncoderOnce(modelDirectory: string): Promise<LocalEncoderRuntime> {
 }
 
 function retrievalConfig(ref: AlgorithmRef): {
-  mode: "runtime";
   runtimeVersion: string;
   encoderFingerprint: string;
   budgetRatio: 0.2;
+  maxPathDepth: 3;
 } | undefined {
-  const value = (ref.config as Record<string, unknown>).candidateRetrieval;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const config = value as Record<string, unknown>;
-  if (config.mode !== "runtime") return undefined;
-  if (typeof config.runtimeVersion !== "string" || typeof config.encoderFingerprint !== "string" || config.budgetRatio !== 0.2) {
-    throw new Error(`candidate retrieval config is invalid for ${ref.id}@${ref.version}`);
+  const selection = ref.children.actionCompilation?.children.candidateSelection;
+  if (!selection || selection.id === "full-catalog") return undefined;
+  if (selection.role !== "candidate-selection" || selection.id !== "graph-hybrid-e5" ||
+    typeof selection.config.encoderFingerprint !== "string" || selection.config.budgetRatio !== 0.2 ||
+    selection.config.maxPathDepth !== 3) {
+    throw new Error(`candidate selection config is invalid for ${selection.role}/${selection.id}@${selection.version}`);
   }
   return {
-    mode: "runtime",
-    runtimeVersion: config.runtimeVersion,
-    encoderFingerprint: config.encoderFingerprint,
+    runtimeVersion: ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
+    encoderFingerprint: selection.config.encoderFingerprint,
     budgetRatio: 0.2,
+    maxPathDepth: 3,
   };
 }
 
 interface VariantRuntime {
-  runtime: ActionCompilationRetrievalRuntime;
+  runtime: CandidateSelectionCapability;
   preflight(input: { worldContentHash: string; state: Readonly<SimulationState> }): Promise<void>;
 }
 
 export interface ActionCompilationRetrievalExperimentSupport {
-  runtimes: ReadonlyMap<string, ActionCompilationRetrievalRuntime>;
+  runtimes: ReadonlyMap<string, CandidateSelectionCapability>;
   preflights: ReadonlyMap<string, VariantRuntime["preflight"]>;
 }
 
@@ -68,7 +69,7 @@ function lazyVariantRuntime(input: {
   onSafetyViolation: (reason: string) => void;
 }): VariantRuntime {
   let delegate: Promise<{
-    runtime: ActionCompilationRetrievalRuntime;
+    runtime: CandidateSelectionCapability;
     passageEncoder: CachedPassageEncoder;
   }> | undefined;
   const load = () => {
@@ -87,7 +88,7 @@ function lazyVariantRuntime(input: {
             strategy: "graph-hybrid",
             encoder,
             passageEncoder,
-            maxPathDepth: 3,
+            maxPathDepth: input.config.maxPathDepth,
           }),
         }),
       };
@@ -105,7 +106,7 @@ function lazyVariantRuntime(input: {
   return {
     runtime: {
       version: input.config.runtimeVersion,
-      role: "action-compilation",
+      role: "candidate-selection",
       async retrieveBatch(request) {
         return withSafetyBoundary(async () => (await load()).runtime.retrieveBatch(request));
       },

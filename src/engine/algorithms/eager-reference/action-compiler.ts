@@ -12,6 +12,7 @@ import {
   actionGroundingReferenceResolver,
 } from "../../mechanics/action-dependency";
 import {
+  DEFAULT_EAGER_OUTPUT_RECOVERY,
   eagerRequestBytes,
   eagerSlotBatchOwner,
   EagerSlotAttemptError,
@@ -20,9 +21,13 @@ import {
   type EagerSlot,
   type EagerSlotAttemptLineage,
   type EagerSlotAttemptResult,
-  type EagerSlotBatchMetrics,
 } from "./eager-slot-batching";
-import type { ActionCompilationDraft, InteractionDependency } from "../../runtime/execution";
+import type {
+  ActionCompilationResult,
+  CompiledAction,
+  OutputRecoveryCapability,
+} from "../roles";
+import type { ActionCompilationDraft } from "../../runtime/execution";
 import type { ActionCompilationReferenceAudit, AgentActionProposal, CausalAssertion, DiscreteRandomAggregate, ModelExecutionAudit, ModelOutputIssue, SimulationState } from "../../contracts/model";
 import {
   ModelOutputError,
@@ -42,7 +47,6 @@ import {
   materializeModelTemporalBasis,
   materializeTemporalPlan,
   type ScheduledActivityState,
-  type TemporalPlan,
 } from "../../mechanics/temporal";
 import { evaluateCausalAssertion } from "../../mechanics/causality";
 import { promptBundle } from "../../prompts";
@@ -91,21 +95,6 @@ function candidateKeysInValue(value: unknown, output = new Set<string>()): Set<s
   if (value && typeof value === "object") Object.values(value as Record<string, unknown>).forEach((entry) => candidateKeysInValue(entry, output));
   return output;
 }
-
-export interface CompiledAction {
-  plan: TemporalPlan;
-  activity: ScheduledActivityState;
-  dependency: InteractionDependency;
-}
-
-export interface ActionCompilationResult {
-  compilations: CompiledAction[];
-  modelAudits: ModelExecutionAudit[];
-  batchCount: number;
-  metrics: EagerSlotBatchMetrics;
-}
-
-export type PlannedTemporalActivity = Pick<CompiledAction, "plan" | "activity">;
 
 interface CompilationPayload {
   action: AgentActionProposal;
@@ -932,7 +921,8 @@ export async function compileActions(
   scope: ModelExecutionScope,
   profileId: string,
   maxSlots: number,
-  repairAttempts = 2,
+  recovery: Readonly<OutputRecoveryCapability> = DEFAULT_EAGER_OUTPUT_RECOVERY,
+  symbolRepairPolicy?: Readonly<import("../../contracts/symbol-repair").SymbolRepairPolicy>,
 ): Promise<ActionCompilationResult> {
   if (actions.length === 0) {
     return {
@@ -959,7 +949,7 @@ export async function compileActions(
     label: "action compilation",
     issuesForError: actionCompilationRepairIssues,
     issueFingerprint: (issue) => semanticRepairFingerprint([issue], MODEL_CONTEXT_CONTRACT_VERSION),
-    maxRepairs: repairAttempts,
+    recovery,
     invoke: async (batch, attempt, lineage: EagerSlotAttemptLineage) => {
       const owner = eagerSlotBatchOwner("action-compilation", batch);
       const identity = modelInvocationIdentity(scope, "action-compilation", owner, attempt + 1);
@@ -1089,6 +1079,7 @@ export async function compileActions(
           preprocessOutput: (raw) => preprocessActionCompilationSymbols({
             value: raw,
             resolver: batchActionResolver,
+            ...(symbolRepairPolicy ? { policy: symbolRepairPolicy } : {}),
             ...(retrieval ? { allowedCandidateKeysBySlot: retrieval.selectedKeysBySlot } : {}),
           }),
         });
