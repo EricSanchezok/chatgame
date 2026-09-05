@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 Class: architecture
 
 ## Context and Problem Statement
@@ -39,7 +39,7 @@ Keep `bootstrap`, `prepareStep`, and `completeStep` as the only top-level world-
 
 Persist and replay the entire recursive identity. Experiment variants select complete Compositions, not ambient middleware. Existing bounded execution-tuning fields are translated by trusted builders into explicit child configurations; no general HTTP or UI algorithm selector is added. The trusted local Inspector and CLI expose the tree, while ordinary clients do not.
 
-Use code-linked maturity metadata (`reference`, `candidate`, `diagnostic`) for discoverability and enrollment policy, but exclude maturity from behavior identity. Do not support dynamic packages, compatibility readers, or fallback between Algorithms.
+Use code-linked maturity metadata (`reference`, `candidate`, `diagnostic`) for discoverability and enrollment policy, but exclude maturity from behavior identity. Historical per-slot candidate selectors remain benchmark-only Algorithms under their versioned evaluation contract; promotion to an instance Composition requires a production Role adapter and accepted evidence. Do not support dynamic packages, compatibility readers, or fallback between Algorithms.
 
 ## Pros and Cons of the Options
 
@@ -66,6 +66,7 @@ Use code-linked maturity metadata (`reference`, `candidate`, `diagnostic`) for d
 ## Links
 
 - [Spec 0021 — Hierarchical algorithm composition](../specs/0021-hierarchical-algorithm-composition.md)
+- [Algorithm system reference](../game-design/algorithm-system.md)
 - [0071 — Pin algorithms and own stable telemetry in the engine](0071-pin-algorithms-and-own-telemetry-in-the-engine.md)
 - [0075 — Pin configured execution algorithms](0075-pin-configured-execution-algorithms.md)
 - [0077 — Organize engine code by ownership boundaries](0077-engine-module-topology.md)

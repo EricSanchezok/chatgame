@@ -2,6 +2,7 @@
 
 - [script-format.md](script-format.md) — 世界包文件、字段与引用约束。
 - [engine-runtime.md](engine-runtime.md) — 自由行动、有限认知、联合裁决和事务语义。
+- [algorithm-system.md](algorithm-system.md) — Role、Algorithm、Composition、替换边界、成熟度与开发流程。
 - [presentation.md](presentation.md) — World Instance HTTP、Participant 会话、Observer 和控制球体验。
 - [script-import.md](script-import.md) — ZIP 安装、替换与安全边界。
 - [runtime-observability.md](runtime-observability.md) — 统一 Execution Ledger、模型 invocation 审计、指标和研究命令。

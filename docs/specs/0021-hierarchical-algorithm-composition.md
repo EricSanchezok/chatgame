@@ -1,7 +1,7 @@
 # Hierarchical algorithm composition
 
 Artifact-Version: 1
-Status: Approved
+Status: Implemented
 
 ## Intent
 
@@ -46,7 +46,7 @@ The default Composition is `world-execution/eager-reference@16`. Its default can
 
 Existing request-level execution tuning remains a bounded convenience surface rather than a general selector. Its five slot/concurrency fields materialize validated batching or scheduling child configurations in a complete Composition. Ordinary world APIs do not expose Composition identity or experiment enrollment.
 
-Benchmark candidate selectors implement the same asynchronous `candidate-selection` Role used by production. Benchmark metadata classifies implementations as `reference`, `candidate`, or `diagnostic`; maturity is catalog metadata and is not part of the recursive manifest hash. Only implementations backed by exact experiment evidence may be enrolled as candidates. Diagnostic implementations cannot enter production compositions.
+Runtime candidate selectors implement the asynchronous production `candidate-selection` Role. Historical per-slot selectors implement the versioned `benchmark-candidate-selection-v1` evaluation contract and are replaceable only within the offline harness; they remain visible as benchmark-only diagnostic Algorithms but cannot resolve inside an instance Composition. Promotion requires a production-batch adapter, pinned resources, registry conformance, current benchmark and replay evidence, and exact experiment activation evidence. Maturity is catalog metadata and is not part of the recursive manifest hash.
 
 World instances persist the complete recursive Composition and immutable experiment enrollment. Replay resolves the exact tree before provider or canonical-state work and fails closed if any descendant is unavailable or its identity differs. Runtime evidence identifies each replaceable node by path, Role, id, version, and manifest hash. The trusted local Inspector may expose the complete tree and configuration; ordinary clients may not.
 
@@ -64,4 +64,10 @@ Run focused unit/integration tests, `npm run algorithms -- validate`, `npm run a
 
 ## Evidence
 
-Pending implementation.
+- [Recursive Composition contract tests](../../src/engine/algorithms/composition.test.ts)
+- [Built-in Role substitution tests](../../src/engine/algorithms/registry.test.ts)
+- [Generated runtime and benchmark Algorithm catalog](../game-design/algorithm-catalog.md)
+- [Instance persistence and trusted Inspector integration tests](../../src/server/__tests__/world-instance-host.test.ts)
+- [Composition Inspector component tests](../../src/app/_components/world-inspector-algorithm-composition.test.tsx)
+- [Algorithm registration, dependency-boundary, and catalog drift gate](../../scripts/verify-algorithms.mjs)
+- [Decision 0099 — Typed hierarchical algorithm composition](../decisions/0099-typed-hierarchical-algorithm-composition.md)
