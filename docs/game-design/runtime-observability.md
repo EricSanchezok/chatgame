@@ -16,9 +16,9 @@ execution kind 只有 `interactive | diagnostic | benchmark | replay`。Benchmar
 
 ## 执行边界
 
-Execution Contract v5 的 `WorldExecutionAlgorithm` 生成 `BootstrapCandidate`，并用 `prepareStep` / `completeStep` 生成 Preparation v4 与 Candidate v5。每个 World Instance 固定一个包含 ID、版本、contract version、opaque config 与 manifest hash 的 `AlgorithmRef`；生产与 replay 都经校验 registry 从该配置构造独立算法实例。`CanonicalCommitter` 独立验证四类 interaction dependency、共享资源 claims/admissions/holder release/FIFO promotion、最早边界、ActivityDisposition、assertion evidence、引用、受众、单份 model audits 与 mind commits，并从 resolution 统一派生 Observation。唯一内置算法 `eager-reference@14` 在边界选择前完成有限 onset reaction 和资源准入，再以固定 Truth slot batches 进行正时间原子提交；Action Compilation 的关系图/Encoder shortlist 仅通过显式 middleware 开启，默认仍为 FullCatalog。
+Execution Contract v5 的 `WorldExecutionAlgorithm` 生成 `BootstrapCandidate`，并用 `prepareStep` / `completeStep` 生成 Preparation v4 与 Candidate v5。每个 World Instance 固定一个包含 ID、版本、contract version、opaque config 与 manifest hash 的 `AlgorithmRef`；生产与 replay 都经校验 registry 从该配置构造独立算法实例。`CanonicalCommitter` 独立验证四类 interaction dependency、共享资源 claims/admissions/holder release/FIFO promotion、最早边界、ActivityDisposition、assertion evidence、引用、受众、单份 model audits 与 mind commits，并从 resolution 统一派生 Observation。唯一内置算法 `eager-reference@15` 在边界选择前完成有限 onset reaction 和资源准入，再以固定 Truth slot batches 进行正时间原子提交；Action Compilation Candidate Retrieval 默认关闭，启用的实验 variant 必须固定生产 runtime、Encoder fingerprint、物理批次预算与严格 slot membership。
 
-WorldHost 为 bootstrap、每个 WorldRun 时间边界和 Arrival 建立 execution。成功世界推进时，World Instance CAS、WorldRun revision 列表与 execution terminal record 在同一 SQLite 事务内完成；失败、取消、暂停、repair 耗尽、迟到结果或关键记录失败均不推进 revision。World Instance document schema 为 v20，旧实例不迁移；修改 host 默认算法或默认调优参数不会改变已存在实例。
+WorldHost 为 bootstrap、每个 WorldRun 时间边界和 Arrival 建立 execution。成功世界推进时，World Instance CAS、WorldRun revision 列表与 execution terminal record 在同一 SQLite 事务内完成；失败、取消、暂停、repair 耗尽、迟到结果或关键记录失败均不推进 revision。World Instance document schema 为 v22，旧实例不迁移；实例创建时固定实验 manifest、variant、bucket、assignment hash 与对应 `AlgorithmRef`，修改 host 默认算法、实验比例或默认调优参数不会改变已存在实例。
 
 原子事务在 terminal event 固定后生成 `{executionId, terminalEventSequence, traceHash}`。`traceHash` 覆盖事件身份、DAG、属性、计数、correlation、错误与 artifact 引用；运行时长和资源测量不进入该 hash。bootstrap 保存 `bootstrapExecutionRef`，每个 `CommittedStep` 保存自己的 `executionRef`；`contentHash` 覆盖引用，`semanticHash` 排除引用，从而分别验证证据链和算法语义。
 
@@ -28,15 +28,15 @@ Runtime event schema v3 的稳定语义归引擎所有。算法只能通过窄�
 
 `MetricDefinitionRegistry` 是名称、单位、`sum | count | last | max` 聚合和允许维度的唯一登记处。Agent、Participant、Instance、Advance、Event、Component 和 invocation ID 只存在于 trace，不进入聚合指标维度；受控的 model role 可以进入指标。指标只从 Ledger 原始事件派生，不另存实验结果真相。
 
-当前指标覆盖 Agent 数量与策略来源、ActionWindow 等待、TemporalPlan、动态 Δt、active Activity、转换、到期 Activity/Timer/Condition、boundary reason 与决策点、ResolutionPlan、已结算/延期 Receipt、outcome status、operation kind、可信 mechanic、依赖图与冲突分量、global dependency 与实际 global readjudication、模型调用/repair/token/cache/字节/work、eager-reference 配置上限、logical/submitted slot、物理调用、局部失败、递归拆批与 fallback、阶段 DAG、CPU/RSS/heap/event-loop/SQLite、rollback 与废弃工作，以及算法/代码/世界/seed/model/runtime 的复现身份。共享资源 benchmark 另按场景 artifact 记录 none/sparse/dense 争用、分配器执行时间、队列长度与 artifact 字节；不把非固定硬件墙钟设为 CI 阈值。模型 invocation、token 和 transport execution 在调用过程中累计，因此 Candidate 生成中途失败也保留非零 discarded-work 证据。
+当前指标覆盖 Agent 数量与策略来源、ActionWindow 等待、TemporalPlan、动态 Δt、active Activity、转换、到期 Activity/Timer/Condition、boundary reason 与决策点、ResolutionPlan、已结算/延期 Receipt、outcome status、operation kind、可信 mechanic、依赖图与冲突分量、global dependency 与实际 global readjudication、模型调用/repair/token/cache/字节/work、候选目录压缩、passage/query cache、shortlist 越界、eager-reference 配置上限、logical/submitted slot、物理调用、局部失败、递归拆批与 fallback、阶段 DAG、CPU/RSS/heap/event-loop/SQLite、rollback 与废弃工作，以及算法/实验/代码/世界/seed/model/runtime 的复现身份。共享资源 benchmark 另按场景 artifact 记录 none/sparse/dense 争用、分配器执行时间、队列长度与 artifact 字节；不把非固定硬件墙钟设为 CI 阈值。模型 invocation、token 和 transport execution 在调用过程中累计，因此 Candidate 生成中途失败也保留非零 discarded-work 证据。
 
 墙钟耗时用于描述运行条件。跨机器的主要算法工作量是调用、token、字节、模型 execution work、阶段 span 和语义产物基数。
 
 ## Inspector
 
-Inspector 服务端按 World Instance 查询 Ledger，并由可重建的 SQLite 查询投影支持精确检索；窗口和摘要不内联大型 payload。已提交图谱从 canonical history 重放派生，attempt、失败、模型调用与原始材料来自同一 Ledger。Inspector API v9 的每个 step detail 公开受信任的 TemporalPlan、Activity/Timer snapshot、边界来源、动态 Δt、同刻到期集合、Activity 转换、决策点、完整 pool capacity、holder、claim、queue 和 admission evidence；未提交 attempt 明确保持 canonical clock、Activity progress 和资源分配不变。
+Inspector 服务端按 World Instance 查询 Ledger，并由可重建的 SQLite 查询投影支持精确检索；窗口和摘要不内联大型 payload。已提交图谱从 canonical history 重放派生，attempt、失败、模型调用与原始材料来自同一 Ledger。Inspector API v12 的每个 step detail 公开受信任的 TemporalPlan、Activity/Timer snapshot、边界来源、动态 Δt、同刻到期集合、Activity 转换、决策点、完整 pool capacity、holder、claim、queue 和 admission evidence；未提交 attempt 明确保持 canonical clock、Activity progress 和资源分配不变。
 
-v9 还提供 `GET /api/instances/:id/inspector/model-invocations` 与单条调用详情路由，以及本地 `GET /api/debug`、`/api/debug/invocations/:id`、`/api/debug/artifacts/:hash` 和 `/api/debug/doctor`。调用投影区分 logical invocation、transport attempt、semantic rejection、repair 和 retry，并公开单次 token、request/context/response 字节数、queue/transport/parse 时间、slot/Agent 映射、validation code、runtime event ID 与 artifact hash。调用清单和 Debug CLI 支持服务端精确查询、稳定分页、诊断码、request/trace/span、artifact 与完整 lineage；完整 payload 仅在显式请求时读取，不进入摘要。
+API v12 还提供 `GET /api/instances/:id/inspector/model-invocations` 与单条调用详情路由，以及本地 `GET /api/debug`、`/api/debug/invocations/:id`、`/api/debug/artifacts/:hash` 和 `/api/debug/doctor`。调用投影区分 logical invocation、transport attempt、semantic rejection、repair 和 retry，并公开单次 token、request/context/response 字节数、queue/transport/parse 时间、slot/Agent 映射、候选 shortlist、缓存命中、validation code、runtime event ID 与 artifact hash。实例窗口显示可信实验归属或排除原因；调用清单和 Debug CLI 支持服务端精确查询、稳定分页、诊断码、request/trace/span、artifact 与完整 lineage；完整 payload 仅在显式请求时读取，不进入摘要。
 
 Inspector 是本地受信任调试表面。公开产品 DTO 和 Participant 视角不读取 Inspector 投影，也不能获得 canonical binding 或其他主体私有认知。
 

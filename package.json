@@ -16,6 +16,8 @@
     "world:validate": "tsx scripts/operations/validate-world.ts",
     "world:import": "tsx scripts/operations/import-world.ts",
     "experiment:run": "tsx scripts/experiments/experiment-run.ts",
+    "experiment:preflight": "tsx scripts/operations/experiment-command.ts preflight",
+    "experiment:report": "tsx scripts/operations/experiment-command.ts report",
     "prompt:evaluate": "tsx scripts/experiments/prompt-evaluation.ts",
     "benchmark:causal": "tsx scripts/experiments/causal-activity-benchmark.ts",
     "benchmark:action-compilation": "tsx scripts/experiments/verify-action-compilation-report.ts",

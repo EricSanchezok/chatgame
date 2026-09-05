@@ -12,7 +12,12 @@ describe("LocalDatabase read-only connections", () => {
     const reader = new LocalDatabase(file, { readOnly: true, heartbeat: false });
 
     try {
-      expect(reader.debugDoctor()).toMatchObject({ schemaVersion: 7, indexFresh: true });
+      writer.writeExperimentEnrollmentStop("fixture", "1", "cache integrity failure");
+      writer.writeExperimentEnrollmentStop("fixture", "1", "later reason must not replace the first stop");
+      expect(reader.readExperimentEnrollmentStop("fixture", "1")).toBe("cache integrity failure");
+      expect(() => reader.writeExperimentEnrollmentStop("fixture", "1", "changed"))
+        .toThrow(LocalDatabaseReadOnlyError);
+      expect(reader.debugDoctor()).toMatchObject({ schemaVersion: 8, indexFresh: true });
       expect(() => reader.debugRebuildIndex()).toThrow(LocalDatabaseReadOnlyError);
       reader.close();
 

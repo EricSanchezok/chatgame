@@ -441,6 +441,7 @@ export async function runDeterministicExperiment(options: ExperimentOptions): Pr
         reactionMaxSlots: DEFAULT_EAGER_REFERENCE_CONFIG.reactionMaxSlots,
         groundingMaxSlots: DEFAULT_EAGER_REFERENCE_CONFIG.groundingMaxSlots,
         truthBatchMaxSlots,
+        candidateRetrieval: DEFAULT_EAGER_REFERENCE_CONFIG.candidateRetrieval,
       };
       const algorithmManifest = createEagerReferenceManifest(algorithmConfig);
       const definition = scaledDefinition(fixture, agentCount);

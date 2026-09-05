@@ -94,6 +94,7 @@ import {
   ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH,
   ACTION_COMPILATION_CANDIDATE_KEY_VERSION,
 } from "../../contracts/model-context";
+import type { ActionCompilationRetrievalRuntime } from "./candidate-retrieval/runtime";
 
 const groundingComponent = { id: "interaction-grounding", version: "3", config: { repairAttempts: 2 } } as const;
 const compilationComponent = {
@@ -128,17 +129,30 @@ const symbolRepairComponent = {
     maxAuditCandidates: 8,
   },
 } as const;
-const candidateRetrievalComponent = {
-  id: "action-compilation-candidate-retrieval",
-  version: "1",
-  config: {
-    mode: "off",
-    budgetRatio: 0.2,
-    canaryPercentage: 30,
-    graphFeatureSchemaVersion: 1,
-    encoderModel: "intfloat/multilingual-e5-small",
-  },
-} as const;
+export type EagerReferenceCandidateRetrievalConfig =
+  | { mode: "off" }
+  | { mode: "runtime"; runtimeVersion: string; encoderFingerprint: string; budgetRatio: 0.2 };
+
+function candidateRetrievalComponent(config: EagerReferenceCandidateRetrievalConfig): { id: string; version: string; config: JsonObject } {
+  if (config.mode === "off") return {
+    id: "action-compilation-candidate-retrieval",
+    version: "2",
+    config: { mode: "off" },
+  } as const;
+  return {
+    id: "action-compilation-candidate-retrieval",
+    version: "2",
+    config: {
+      mode: "runtime",
+      runtimeVersion: config.runtimeVersion,
+      encoderFingerprint: config.encoderFingerprint,
+      budgetRatio: config.budgetRatio,
+      graphFeatureSchemaVersion: 1,
+      encoderModel: "intfloat/multilingual-e5-small",
+      cacheSchemaVersion: 1,
+    },
+  } as const;
+}
 
 export interface EagerReferenceAlgorithmConfig {
   actionCompilationMaxSlots: number;
@@ -146,6 +160,7 @@ export interface EagerReferenceAlgorithmConfig {
   reactionMaxSlots: number;
   groundingMaxSlots: number;
   truthBatchMaxSlots: number;
+  candidateRetrieval: EagerReferenceCandidateRetrievalConfig;
 }
 
 interface NormalizedEagerReferenceAlgorithmConfig {
@@ -154,6 +169,7 @@ interface NormalizedEagerReferenceAlgorithmConfig {
   reactionMaxSlots: number;
   groundingMaxSlots: number;
   truthBatchMaxSlots: number;
+  candidateRetrieval: EagerReferenceCandidateRetrievalConfig;
 }
 
 export const DEFAULT_EAGER_REFERENCE_CONFIG: Readonly<EagerReferenceAlgorithmConfig> = Object.freeze({
@@ -162,6 +178,7 @@ export const DEFAULT_EAGER_REFERENCE_CONFIG: Readonly<EagerReferenceAlgorithmCon
   reactionMaxSlots: 8,
   groundingMaxSlots: 16,
   truthBatchMaxSlots: 12,
+  candidateRetrieval: { mode: "off" as const },
 });
 
 function slotLimit(value: unknown, label: string): number {
@@ -179,6 +196,7 @@ export function parseEagerReferenceAlgorithmConfig(value: unknown): NormalizedEa
   const expected = [
     "actionCompilationMaxSlots",
     "agentMindMaxSlots",
+    "candidateRetrieval",
     "groundingMaxSlots",
     "reactionMaxSlots",
     "truthBatchMaxSlots",
@@ -202,7 +220,25 @@ export function parseEagerReferenceAlgorithmConfig(value: unknown): NormalizedEa
       "groundingMaxSlots",
     ),
     truthBatchMaxSlots: slotLimit(input.truthBatchMaxSlots, "truthBatchMaxSlots"),
+    candidateRetrieval: parseCandidateRetrievalConfig(input.candidateRetrieval),
   };
+}
+
+function parseCandidateRetrievalConfig(value: unknown): EagerReferenceCandidateRetrievalConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("candidateRetrieval must be an object");
+  const input = value as Record<string, unknown>;
+  if (input.mode === "off" && Object.keys(input).length === 1) return { mode: "off" };
+  const keys = Object.keys(input).sort();
+  const expected = ["budgetRatio", "encoderFingerprint", "mode", "runtimeVersion"];
+  if (input.mode !== "runtime" || JSON.stringify(keys) !== JSON.stringify(expected)) {
+    throw new Error(`runtime candidateRetrieval fields must be exactly: ${expected.join(", ")}`);
+  }
+  if (input.budgetRatio !== 0.2) throw new Error("candidateRetrieval budgetRatio must be exactly 0.2");
+  if (typeof input.runtimeVersion !== "string" || input.runtimeVersion.length === 0) throw new Error("candidateRetrieval runtimeVersion is required");
+  if (typeof input.encoderFingerprint !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(input.encoderFingerprint)) {
+    throw new Error("candidateRetrieval encoderFingerprint must be a SHA-256 identity");
+  }
+  return { mode: "runtime", runtimeVersion: input.runtimeVersion, encoderFingerprint: input.encoderFingerprint, budgetRatio: 0.2 };
 }
 
 export function createEagerReferenceManifest(
@@ -211,15 +247,16 @@ export function createEagerReferenceManifest(
   const config = parseEagerReferenceAlgorithmConfig(value);
   return defineAlgorithmManifest({
     id: "eager-reference",
-    version: "14",
+    version: "15",
     config: {
       actionCompilationMaxSlots: config.actionCompilationMaxSlots,
       agentMindMaxSlots: config.agentMindMaxSlots,
       reactionMaxSlots: config.reactionMaxSlots,
       groundingMaxSlots: config.groundingMaxSlots,
       truthBatchMaxSlots: config.truthBatchMaxSlots,
+      candidateRetrieval: config.candidateRetrieval,
     },
-    components: [compilationComponent, groundingComponent, truthComponent, mindComponent, symbolRepairComponent, candidateRetrievalComponent],
+    components: [compilationComponent, groundingComponent, truthComponent, mindComponent, symbolRepairComponent, candidateRetrievalComponent(config.candidateRetrieval)],
   });
 }
 
@@ -800,16 +837,27 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   private readonly observationRenderer: ObservationRenderer;
   private readonly provider: StructuredModelProvider;
   private readonly rulePackages: RulePackageRegistry;
+  private readonly actionCompilationRetrieval?: ActionCompilationRetrievalRuntime;
 
   constructor(
     provider: StructuredModelProvider,
     rulePackages?: RulePackageRegistry,
     config: Readonly<EagerReferenceAlgorithmConfig> = DEFAULT_EAGER_REFERENCE_CONFIG,
+    actionCompilationRetrieval?: ActionCompilationRetrievalRuntime,
   ) {
     this.config = Object.freeze(parseEagerReferenceAlgorithmConfig(config));
     this.manifest = createEagerReferenceManifest(this.config);
     this.provider = new TruthBatchCoordinator(provider, this.config.truthBatchMaxSlots);
     this.rulePackages = rulePackages ?? createCoreRulePackageRegistry();
+    if (this.config.candidateRetrieval.mode === "runtime") {
+      if (!actionCompilationRetrieval) throw new Error("candidate retrieval runtime is required by the eager-reference algorithm config");
+      if (actionCompilationRetrieval.version !== this.config.candidateRetrieval.runtimeVersion) {
+        throw new Error("candidate retrieval runtime version does not match the algorithm config");
+      }
+    } else if (actionCompilationRetrieval) {
+      throw new Error("candidate retrieval runtime was supplied to an algorithm configured off");
+    }
+    this.actionCompilationRetrieval = actionCompilationRetrieval;
     this.truthEngine = new TruthEngine(this.provider, { rulePackages: this.rulePackages });
     this.agentMind = new AgentMind(provider);
     this.observationRenderer = new ObservationRenderer(this.provider);
@@ -838,6 +886,12 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         singletonFailures: metrics.singletonFailures,
       },
     });
+  }
+
+  private actionCompilationScope(context: ExecutionContext): ExecutionContext["modelScope"] {
+    return this.actionCompilationRetrieval
+      ? { ...context.modelScope, actionCompilationRetrieval: this.actionCompilationRetrieval }
+      : context.modelScope;
   }
 
   private async thinkBatchWithFallback(
@@ -1227,7 +1281,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.provider,
       planningState,
       knownActions,
-      context.modelScope,
+      this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
     );
@@ -1264,7 +1318,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.provider,
       planningState,
       resumedActions,
-      context.modelScope,
+      this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
       compilationComponent.config.repairAttempts,
@@ -1621,7 +1675,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.provider,
       planningState,
       replacementDecisions.map((decision) => decision.replacementAction),
-      context.modelScope,
+      this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
       compilationComponent.config.repairAttempts,

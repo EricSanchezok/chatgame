@@ -77,6 +77,23 @@ function runtimeEvents(): RuntimeEvent[] {
       },
     }),
     event(10, {
+      event: "model.action_compilation.context.captured",
+      correlation,
+      attributes: { middlewareVersion: "retrieval-v4", role: "action-compilation" },
+      counts: {
+        slots: 1,
+        visibleCandidates: 1_783,
+        selectedCandidates: 356,
+        batchBudget: 356,
+        passageCacheHits: 1_782,
+        passageCacheMisses: 0,
+        queryCacheHits: 0,
+        queryCacheMisses: 1,
+      },
+      measurements: { batchShortlistRatio: 356 / 1_783, cacheReadMs: 12, queryEncodeMs: 8 },
+      payload: { perSlotSelectedCount: { "0": 355 } },
+    }),
+    event(11, {
       event: "model.invocation.started",
       correlation,
       attributes: {
@@ -195,6 +212,15 @@ describe("world inspector model invocation projection", () => {
         expect.objectContaining({ code: "SchemaValidationError" }),
         expect.objectContaining({ code: "continuation_assertion" }),
       ]),
+      actionCompilationRetrieval: {
+        mode: "shortlist",
+        runtimeVersion: "retrieval-v4",
+        fullCatalogCount: 1_783,
+        modelCatalogCount: 356,
+        passageCacheHits: 1_782,
+        passageCacheMisses: 0,
+        perSlotSelectedCount: { "0": 355 },
+      },
     });
     expect(result.items[0]?.transportAttempts[0]).toMatchObject({
       attempt: 1,
@@ -249,7 +275,7 @@ describe("world inspector model invocation projection", () => {
     expect(firstPage.items[0]).not.toHaveProperty("payload");
 
     const detail = buildWorldInspectorModelInvocationDetail(record.id, "execution-1::invocation-action-1", record, events);
-    expect(detail?.eventSummaries).toHaveLength(8);
+    expect(detail?.eventSummaries).toHaveLength(9);
     expect(detail?.eventSummaries.every((event) => !("payload" in event))).toBe(true);
     expect(detail?.payloadEventIds.context).toBeDefined();
     expect(detail?.payloadEventIds.output).toBeDefined();

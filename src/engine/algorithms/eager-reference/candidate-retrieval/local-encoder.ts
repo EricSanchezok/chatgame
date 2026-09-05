@@ -12,7 +12,7 @@ export const LOCAL_ENCODER_QUERY_PREFIX = "query: " as const;
 export const LOCAL_ENCODER_PASSAGE_PREFIX = "passage: " as const;
 
 export function livingWorldCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return path.resolve(env.LIVINGWORLD_CACHE_ROOT ?? ".livingworld-cache");
+  return path.resolve(/* turbopackIgnore: true */ env.LIVINGWORLD_CACHE_ROOT ?? ".livingworld-cache");
 }
 
 export function discoverLocalEncoderModelDirectory(cacheRoot = livingWorldCacheRoot()): string {
@@ -78,9 +78,11 @@ export class CachedQueryEncoder {
     const pending = this.encoder.encodeBatch([`${LOCAL_ENCODER_QUERY_PREFIX}${query}`]).then((vectors) => {
       const vector = vectors[0];
       if (!vector || vector.length !== this.encoder.dimensions) throw new Error("encoder omitted the query embedding");
-      this.values.set(key, vector);
+      if (vector.some((value) => !Number.isFinite(value))) throw new Error("encoder returned a non-finite query embedding");
+      const stable = Object.freeze([...vector]);
+      this.values.set(key, stable);
       while (this.values.size > this.maxEntries) this.values.delete(this.values.keys().next().value!);
-      return vector;
+      return stable;
     });
     this.pending.set(key, pending);
     try {
@@ -143,12 +145,31 @@ function hashDirectory(root: string): string {
 }
 
 function libraryMetadata(): { version: string; hash: string } {
-  const root = packageRoot();
-  const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { version?: unknown };
-  if (typeof packageJson.version !== "string" || packageJson.version.length === 0) {
+  const transformersRoot = packageRoot();
+  const transformersPackage = JSON.parse(readFileSync(path.join(transformersRoot, "package.json"), "utf8")) as { version?: unknown };
+  if (typeof transformersPackage.version !== "string" || transformersPackage.version.length === 0) {
     throw new Error(`${TRANSFORMERS_LIBRARY_PACKAGE} package version is missing`);
   }
-  return { version: packageJson.version, hash: hashDirectory(root) };
+  const require = createRequire(import.meta.url);
+  const runtimeRoot = path.dirname(require.resolve("onnxruntime-node/package.json"));
+  const runtimePackage = JSON.parse(readFileSync(path.join(runtimeRoot, "package.json"), "utf8")) as { version?: unknown };
+  if (typeof runtimePackage.version !== "string" || runtimePackage.version.length === 0) {
+    throw new Error("onnxruntime-node package version is missing");
+  }
+  const components = {
+    transformers: {
+      version: transformersPackage.version,
+      hash: hashDirectory(transformersRoot),
+    },
+    onnxRuntimeNode: {
+      version: runtimePackage.version,
+      hash: hashDirectory(runtimeRoot),
+    },
+  };
+  return {
+    version: `${TRANSFORMERS_LIBRARY_PACKAGE}@${transformersPackage.version};onnxruntime-node@${runtimePackage.version}`,
+    hash: `sha256:${contentHash(components)}`,
+  };
 }
 
 function configuredDimensions(modelDirectory: string): number {

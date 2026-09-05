@@ -27,4 +27,14 @@ describe("dynamic query encoder cache", () => {
     expect((await cache.encode("one")).cacheHit).toBe(false);
     expect(calls).toBe(4);
   });
+
+  it("rejects non-finite query vectors", async () => {
+    const encoder: LocalEncoderRuntime = {
+      modelId: "fixture",
+      modelHash: `sha256:${"1".repeat(64)}`,
+      dimensions: 2,
+      async encodeBatch() { return [[Number.NaN, 1]]; },
+    };
+    await expect(new CachedQueryEncoder(encoder).encode("bad")).rejects.toThrow("non-finite");
+  });
 });

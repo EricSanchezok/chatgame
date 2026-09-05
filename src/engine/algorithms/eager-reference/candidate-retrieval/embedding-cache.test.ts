@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -55,6 +55,19 @@ describe("persistent embedding cache", () => {
     })).toThrow(EmbeddingCacheIntegrityError);
   });
 
+  it("opens a warm cache read-only without creating a cold database", () => {
+    const directory = root();
+    expect(() => new PersistentEmbeddingCache(directory, identity(), { readOnly: true })).toThrow();
+    expect(existsSync(embeddingCacheDatabasePath(directory, identity()))).toBe(false);
+    const writable = new PersistentEmbeddingCache(directory, identity());
+    writable.write([{ hash: passageHash("passage: warm"), vector: [0.1, 0.2, 0.3] }]);
+    writable.close();
+    const readOnly = new PersistentEmbeddingCache(directory, identity(), { readOnly: true });
+    expect(readOnly.verify()).toEqual({ entries: 1, dimensions: 3 });
+    expect(() => readOnly.write([])).toThrow(/read-only/u);
+    readOnly.close();
+  });
+
   it("rejects a corrupted vector checksum", () => {
     const directory = root();
     const hash = passageHash("passage: corrupted");
@@ -89,6 +102,14 @@ describe("persistent embedding cache", () => {
     expect(calls).toBe(1);
     expect(left.vectors).toEqual(right.vectors);
     cached.close();
+
+    const readOnly = new CachedPassageEncoder(encoder, identity().encoderFingerprint, directory, true);
+    await expect(readOnly.encodePassages({
+      worldContentHash: identity().worldContentHash,
+      passages: ["passage: missing"],
+      allowWrite: false,
+    })).rejects.toThrow(/not ready/u);
+    readOnly.close();
 
     const cold = new CachedPassageEncoder(encoder, identity().encoderFingerprint, directory);
     await expect(cold.encodePassages({

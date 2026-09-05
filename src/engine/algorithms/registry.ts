@@ -31,6 +31,7 @@ export function registerBuiltinAlgorithms(
         services.provider,
         services.rulePackages,
         parseEagerReferenceAlgorithmConfig(config),
+        services.actionCompilationRetrieval,
       ),
     });
   }

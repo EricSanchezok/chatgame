@@ -11,10 +11,17 @@
   "encoder": {
     "modelId": "intfloat/multilingual-e5-small",
     "modelHash": "sha256:d36818af59d24cf4293a78d41f2194a215157aefcfccb4c650902c851a0a0b2c",
-    "encoderFingerprint": "sha256:083383dc5cdaa20d015b8fc99ba123b8a029fc8e2d4175e3042bee4b28a9fb64",
+    "encoderFingerprint": "sha256:a3aa1027be8dca7c1ae920351e19f91ba331de9791a86be8bac309cfe7a2a726",
     "dimensions": 384,
-    "libraryVersion": "4.2.0",
-    "libraryHash": "sha256:a81fccdba3baa7cf2e751322409d7e35100cb055d4299a654a1891ff579738ae"
+    "libraryVersion": "@huggingface/transformers@4.2.0;onnxruntime-node@1.24.3",
+    "libraryHash": "sha256:163a5323076064ac9bcb7037af683f00b81c4252f21ced09f71b5f1e75a3e0a2"
+  },
+  "activation": {
+    "datasetManifestHash": "sha256:2c68f83044e4eed9a658883dbdbc767c7537bbefa518c2be85f30a605fd40d47",
+    "worldContentHashes": [
+      "sha256:996be2ba44b7d60b0af3170f362319c4b1919b3eeb18b7ff2361abc564a9a591"
+    ],
+    "replayMatched": false
   },
   "runs": [
     {
@@ -1007,9 +1014,9 @@
       "cases": 46,
       "batches": 24,
       "requiredKeys": 609,
-      "recalledKeys": 486,
-      "microRecall": 0.7980295566502463,
-      "macroRecall": 0.8222458420889197,
+      "recalledKeys": 488,
+      "microRecall": 0.8013136288998358,
+      "macroRecall": 0.8258583740582293,
       "averageBatchCompression": 0.8003537994773703,
       "p95BatchShortlistRatio": 0.19988833054159688,
       "invalidKeys": 0,
@@ -1180,10 +1187,11 @@
           "contextHash": "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320",
           "slotIndex": 1,
           "requiredCount": 17,
-          "recalledCount": 14,
-          "recall": 0.8235294117647058,
+          "recalledCount": 13,
+          "recall": 0.7647058823529411,
           "missingKeys": [
             "candidate_00c2388a6d61",
+            "candidate_6e5424864795",
             "candidate_c6f804b30626",
             "candidate_f9b65040e0a5"
           ],
@@ -1301,8 +1309,8 @@
           "contextHash": "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502",
           "slotIndex": 1,
           "requiredCount": 20,
-          "recalledCount": 9,
-          "recall": 0.45,
+          "recalledCount": 11,
+          "recall": 0.55,
           "missingKeys": [
             "candidate_05a732956112",
             "candidate_0be64a9d045e",
@@ -1310,11 +1318,9 @@
             "candidate_1f3cf4c24765",
             "candidate_57e1365a8b73",
             "candidate_57ec1b863486",
-            "candidate_8197a875a456",
             "candidate_b4c20c74bea2",
             "candidate_c6228c607f45",
-            "candidate_d31dbb01365e",
-            "candidate_fc0b70dbd65c"
+            "candidate_d31dbb01365e"
           ],
           "returnedCount": 356
         },
@@ -1414,11 +1420,9 @@
           "contextHash": "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7",
           "slotIndex": 0,
           "requiredCount": 8,
-          "recalledCount": 7,
-          "recall": 0.875,
-          "missingKeys": [
-            "candidate_33ec6e862532"
-          ],
+          "recalledCount": 8,
+          "recall": 1,
+          "missingKeys": [],
           "returnedCount": 357
         },
         {
@@ -1644,14 +1648,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.1995528228060369,
           "compression": 0.8004471771939631,
-          "shortlistHash": "6905c0a99c508dc6b65994f8bd95a00ba9cdeb8f2dbfbf73ec5740d929292e0f",
+          "shortlistHash": "68b45f95e775c332727331896fe40fd2d5412606a64f0665f6c44255b74fd9e1",
           "cache": {
             "passageHits": 1774,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 1,
-            "readMs": 94.4190410000001,
-            "queryEncodeMs": 97.28691600000002
+            "readMs": 40.27454200000011,
+            "queryEncodeMs": 35.01037500000007
           }
         },
         {
@@ -1665,14 +1669,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.1995528228060369,
           "compression": 0.8004471771939631,
-          "shortlistHash": "90692a0d297834dcfd865bb30fce928306e33b8a20b2b349dd19e3fd112144d6",
+          "shortlistHash": "671d6c2f4836f7878320cb9a7b09c3d777ce68e33052b4ee3cf10e56074c1888",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 65.74504200000001,
-            "queryEncodeMs": 111.17229199999974
+            "readMs": 67.74104199999988,
+            "queryEncodeMs": 79.88362499999971
           }
         },
         {
@@ -1686,14 +1690,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.1996653653095371,
           "compression": 0.800334634690463,
-          "shortlistHash": "fcef4464740ea468d0e4656319db7a93f7854ec06fb2d0a744a08cde886332a6",
+          "shortlistHash": "099400ca1b52229e7cf6fd9e18a1466f4607c0ee710774585acc974f2678860c",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 62.888748999999734,
-            "queryEncodeMs": 73.5730410000001
+            "readMs": 65.32766700000002,
+            "queryEncodeMs": 77.50008400000024
           }
         },
         {
@@ -1707,14 +1711,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19988833054159688,
           "compression": 0.8001116694584032,
-          "shortlistHash": "d3175c80341599365b49834dd643eca6df60c3ca074e4389a052650820ff0c87",
+          "shortlistHash": "ea50d0839b4f974d01b7985751a20439cddffd39f4af41e64de53c75e307f82c",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 60.40016699999978,
-            "queryEncodeMs": 68.69104099999959
+            "readMs": 66.11141700000007,
+            "queryEncodeMs": 69.19258200000013
           }
         },
         {
@@ -1728,14 +1732,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.1995528228060369,
           "compression": 0.8004471771939631,
-          "shortlistHash": "1448d9224ef60a0212240a73803e1593553be224e8ba3b887d075e90ef56f9e8",
+          "shortlistHash": "70f333e9069bbdae739ee1d06a57771dd961014991d191f11986754965f0c6fa",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 63.26762400000007,
-            "queryEncodeMs": 64.89212399999997
+            "readMs": 65.23933399999942,
+            "queryEncodeMs": 65.88624900000013
           }
         },
         {
@@ -1749,14 +1753,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19977678571428573,
           "compression": 0.8002232142857143,
-          "shortlistHash": "99266ee73436fd0f1e4068be8709ecb086cfb2a97f395b840db7f0c30320cba4",
+          "shortlistHash": "d25cdb4a048a7ac6f50ea60a48e9b71bcb562af9d71cf905aaf63df40b368478",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 63.12037400000099,
-            "queryEncodeMs": 72.25045799999953
+            "readMs": 66.33175100000062,
+            "queryEncodeMs": 80.49062499999945
           }
         },
         {
@@ -1770,14 +1774,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.1995528228060369,
           "compression": 0.8004471771939631,
-          "shortlistHash": "b84f5cdacc987c1d656b6c0e86b390b9e2da6c88f36820be1f27243f89b4a1b7",
+          "shortlistHash": "7844ca8ed351d6deca04d8d61c837a1245ad8c47d2ce829c419112329167307f",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 67.23362500000076,
-            "queryEncodeMs": 124.45212499999889
+            "readMs": 64.45241700000042,
+            "queryEncodeMs": 63.16270799999984
           }
         },
         {
@@ -1791,14 +1795,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19988833054159688,
           "compression": 0.8001116694584032,
-          "shortlistHash": "acf52e1606541cecd4e9944233a48bd7a6aa421956c30ca66416602f13c9ab2d",
+          "shortlistHash": "20b0775904305b486f4c9e4215c733d5b36bc2be3e9da732537c60c7bb17c26c",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 62.25949899999978,
-            "queryEncodeMs": 85.22216600000047
+            "readMs": 65.16370800000004,
+            "queryEncodeMs": 84.42862500000047
           }
         },
         {
@@ -1812,14 +1816,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.19944134078212292,
           "compression": 0.8005586592178771,
-          "shortlistHash": "21ef2e964e5402648aa3d3ea75bbe6203078e481681ed53ee59d572862d8e2d5",
+          "shortlistHash": "256823db21f289c8f82bb46e1499633088e5f96e659985760278bd89cd45e333",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 62.82195900000079,
-            "queryEncodeMs": 59.19220899999982
+            "readMs": 67.25858300000073,
+            "queryEncodeMs": 82.99991699999919
           }
         },
         {
@@ -1833,14 +1837,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.1996653653095371,
           "compression": 0.800334634690463,
-          "shortlistHash": "231393ff7b2484b6d271faf77071cb47993704a9e829c31865b285bfb8e08536",
+          "shortlistHash": "fd466f957bed4d2a7e14d53faaa4ac8eb870f1551fe14a521eee6dd2f10223fb",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 64.58620800000062,
-            "queryEncodeMs": 68.03520899999876
+            "readMs": 66.3921250000003,
+            "queryEncodeMs": 65.74841599999945
           }
         },
         {
@@ -1854,14 +1858,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.1995528228060369,
           "compression": 0.8004471771939631,
-          "shortlistHash": "c4bfb9ee0e4b1c66baa611213c17cc7f0137eb2a4cbe98b8ae43cd336ce312f4",
+          "shortlistHash": "8fa812e169debea8b034affe431ebf2d379e717bbf179fc2fc7db3fb722009f5",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 62.557958999999755,
-            "queryEncodeMs": 66.86141700000098
+            "readMs": 70.22716700000001,
+            "queryEncodeMs": 99.64608399999906
           }
         },
         {
@@ -1875,14 +1879,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.19944134078212292,
           "compression": 0.8005586592178771,
-          "shortlistHash": "d57e1385c669a55c20fab40fc2811799cd17ea8086f8b8fb3ee74b3c4be45a3d",
+          "shortlistHash": "ddbc7bf71a3edd1cb5743f91c8db835e37913897c30fd0d0ca8df52bb105fd1b",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 64.12324900000021,
-            "queryEncodeMs": 62.65166600000066
+            "readMs": 61.41449999999986,
+            "queryEncodeMs": 61.371916999999485
           }
         },
         {
@@ -1896,14 +1900,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19988833054159688,
           "compression": 0.8001116694584032,
-          "shortlistHash": "61084712500aeec1f5fd7ad4cc5755e04d0a6827890675370c177e66b52f0ad0",
+          "shortlistHash": "6ce872493d13d70d4e7f4b4db84af844e929ca809fbd4ead7933424d5197b9df",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 70.7038330000014,
-            "queryEncodeMs": 106.12283299999945
+            "readMs": 62.03166600000077,
+            "queryEncodeMs": 74.73462500000096
           }
         },
         {
@@ -1917,14 +1921,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.19944134078212292,
           "compression": 0.8005586592178771,
-          "shortlistHash": "be261d189ab6e5e5f3eeb74cc916e37d2928fef5b8103b9bcc4d0ebc485a0745",
+          "shortlistHash": "d528b100de653a90fffc12fd8ff498d3ba1bf21bdbd29d9c67979a90b7dfc906",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 65.08887499999946,
-            "queryEncodeMs": 103.27658300000076
+            "readMs": 66.05454199999986,
+            "queryEncodeMs": 79.8630000000012
           }
         },
         {
@@ -1938,14 +1942,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.1995528228060369,
           "compression": 0.8004471771939631,
-          "shortlistHash": "a8fb9b365bc87122832df7fdb4fbd9a5f997c2eb4afbc82b1a5c59e25a43fd15",
+          "shortlistHash": "8e8e3c2000276ec8e47128c36524be5457bda239e723fe6a2e2bc95969a70635",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 64.35933399999885,
-            "queryEncodeMs": 80.48754199999894
+            "readMs": 62.43070800000169,
+            "queryEncodeMs": 56.28837500000009
           }
         },
         {
@@ -1959,14 +1963,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19977678571428573,
           "compression": 0.8002232142857143,
-          "shortlistHash": "81bf32e0810a8931e668497011888add659e9c1b07dfe066ebfdb35020abe909",
+          "shortlistHash": "c981a6980cf3e7e6368e398effbc55a5704ebf1d9ec887beeac90ff9f44ecae0",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 68.12383399999999,
-            "queryEncodeMs": 98.67583399999967
+            "readMs": 62.12058200000138,
+            "queryEncodeMs": 63.35608299999876
           }
         },
         {
@@ -1980,14 +1984,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.19944134078212292,
           "compression": 0.8005586592178771,
-          "shortlistHash": "35ab01d3c04e07738c649e266ca7f51dbc4b6e97456086b37f7fc1ad225876e1",
+          "shortlistHash": "386ade6591802f1b1daba4d60f8dd5a311072785fd205c079459f6a12ac4cc5d",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 63.727624999999534,
-            "queryEncodeMs": 68.60862500000076
+            "readMs": 63.73649999999907,
+            "queryEncodeMs": 65.83395799999744
           }
         },
         {
@@ -2001,14 +2005,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.19944134078212292,
           "compression": 0.8005586592178771,
-          "shortlistHash": "127baf5d68cda3eaf17173e9942cb9d6aac5aede4f93b65da43729fad54dcf7c",
+          "shortlistHash": "8609f9d9d94f11ff424456c8de87ad0d6fecadc6169f757794d8949bece44ce9",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 63.160374999999476,
-            "queryEncodeMs": 85.02679199999875
+            "readMs": 63.218792000001486,
+            "queryEncodeMs": 146.0827500000014
           }
         },
         {
@@ -2022,14 +2026,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.1995528228060369,
           "compression": 0.8004471771939631,
-          "shortlistHash": "2163709c5fcca2d5b1b57afd70852f268592b263214a481cd97b280583180731",
+          "shortlistHash": "d4f87ddb3646ff548ad0fbb3304b157f2b12af36694ffa2d0fd635488d187d27",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 70.37299999999959,
-            "queryEncodeMs": 98.85495900000024
+            "readMs": 65.06137499999932,
+            "queryEncodeMs": 63.787374999999884
           }
         },
         {
@@ -2043,14 +2047,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19977678571428573,
           "compression": 0.8002232142857143,
-          "shortlistHash": "1ee51c7b911598fdef2fc1759b54620897ff261c519a8135be1ae9bd48cec533",
+          "shortlistHash": "7c9575cbac1b50d38f71663c507cf3b1e5c135cfa868aa45e99fb1de5c86a3f7",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 65.91783399999986,
-            "queryEncodeMs": 100.83216700000048
+            "readMs": 65.55483300000014,
+            "queryEncodeMs": 89.2804159999996
           }
         },
         {
@@ -2064,14 +2068,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19988833054159688,
           "compression": 0.8001116694584032,
-          "shortlistHash": "ac3967113cc1dccc6151a5583ebd706e2eac50530a1adf7ab40b9015fbfcd093",
+          "shortlistHash": "93dadf09cb841cd77f315a428177d36de5360b005fe9ba5e5dc935c387ab9147",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 67.82445799999914,
-            "queryEncodeMs": 83.13958300000195
+            "readMs": 71.24166699999842,
+            "queryEncodeMs": 93.69083300000239
           }
         },
         {
@@ -2085,14 +2089,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19988833054159688,
           "compression": 0.8001116694584032,
-          "shortlistHash": "8551f8e91dcdfc25d15671c98b38e72ee58fb4725f0d7b44bb69caecc60196ae",
+          "shortlistHash": "558affafcac0b978f0ca803bfa3693945342eb21e66ee654964fa55d41460597",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 66.38108400000056,
-            "queryEncodeMs": 83.7508749999979
+            "readMs": 63.94487500000105,
+            "queryEncodeMs": 62.63808400000016
           }
         },
         {
@@ -2106,14 +2110,14 @@
           "returnedCount": 358,
           "shortlistRatio": 0.19977678571428573,
           "compression": 0.8002232142857143,
-          "shortlistHash": "f31b0404654cb8f57c0359ac49246501d61e9f8ca3a3654c440b31acfb1c577e",
+          "shortlistHash": "09bed4587e78c244a5cdf94a16a180cb3ee0d53156bc6e588636bb7027aeb733",
           "cache": {
             "passageHits": 3548,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 2,
-            "readMs": 69.73383299999841,
-            "queryEncodeMs": 87.56287599999996
+            "readMs": 65.50345799999923,
+            "queryEncodeMs": 85.94133399999919
           }
         },
         {
@@ -2126,14 +2130,14 @@
           "returnedCount": 357,
           "shortlistRatio": 0.1995528228060369,
           "compression": 0.8004471771939631,
-          "shortlistHash": "2e270febc4c9c52f89fa6f53b8774fb25cd98267b33f46646f3859889e0cefd9",
+          "shortlistHash": "2d972bef8d8c65f46590234ffe80f03520c8fee14ef14568d047d8127f64a7c8",
           "cache": {
             "passageHits": 1774,
             "passageMisses": 0,
             "queryHits": 0,
             "queryMisses": 1,
-            "readMs": 32.72404199999983,
-            "queryEncodeMs": 87.59537499999897
+            "readMs": 33.18995900000118,
+            "queryEncodeMs": 43.604332999999315
           }
         }
       ]

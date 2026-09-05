@@ -61,7 +61,7 @@ Options:
 
 function parseOptions(argv: readonly string[]): Options {
   const executionIds: string[] = [];
-  let database = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v20", "livingworld.sqlite");
+  let database = path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v22", "livingworld.sqlite");
   let instanceId: string | undefined;
   let version = 1;
   let output: string | undefined;

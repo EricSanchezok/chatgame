@@ -6,6 +6,7 @@ import {
 } from "../../../runtime/execution";
 import {
   EagerReferenceAlgorithm,
+  DEFAULT_EAGER_REFERENCE_CONFIG,
 } from "../eager-reference";
 import { historyReplayBaseHash } from "../../../runtime/history-replay";
 import { replaySimulationState } from "../../../runtime/transaction";
@@ -39,6 +40,19 @@ type AssignedModelAction = {
   means: string | null;
   targetRefs: string[];
 };
+
+it("fails closed when a retrieval-enabled algorithm has no pinned runtime", () => {
+  const provider = new DeterministicModelProvider();
+  expect(() => new EagerReferenceAlgorithm(provider, undefined, {
+    ...DEFAULT_EAGER_REFERENCE_CONFIG,
+    candidateRetrieval: {
+      mode: "runtime",
+      runtimeVersion: "missing-runtime",
+      encoderFingerprint: `sha256:${"1".repeat(64)}`,
+      budgetRatio: 0.2,
+    },
+  })).toThrow(/runtime is required/u);
+});
 
 function assignedActions(context: unknown): AgentActionProposal[] {
   const state = (context as { state?: { actionSet?: { assigned?: AssignedModelAction[] } } }).state;
@@ -405,6 +419,7 @@ describe("eager reference safeguards", () => {
           reactionMaxSlots: 8,
           groundingMaxSlots: 16,
           truthBatchMaxSlots: 12,
+          candidateRetrieval: { mode: "off" },
         }),
       );
       await engine.bootstrapAgents();

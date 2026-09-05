@@ -89,12 +89,15 @@ export function preprocessActionCompilationSymbols(input: {
   slots.forEach((slotValue, slotIndex) => {
     if (!slotValue || typeof slotValue !== "object" || Array.isArray(slotValue)) return;
     const slot = slotValue as Record<string, unknown>;
+    const declaredSlot = Number.isSafeInteger(slot.slot) && Number(slot.slot) >= 0
+      ? Number(slot.slot)
+      : slotIndex;
     const temporalPlan = slot.temporalPlan;
     if (temporalPlan && typeof temporalPlan === "object" && !Array.isArray(temporalPlan)) {
       const plan = temporalPlan as Record<string, unknown>;
       repairField(
         ["slots", slotIndex, "temporalPlan", "profileRef"],
-        slotIndex,
+        declaredSlot,
         plan.profileRef,
         ACTION_COMPILATION_FIELD_USES.temporalProfile,
       );
@@ -102,7 +105,7 @@ export function preprocessActionCompilationSymbols(input: {
         if (!cause || typeof cause !== "object" || Array.isArray(cause)) return;
         repairField(
           ["slots", slotIndex, "temporalPlan", "causes", causeIndex, "ref"],
-          slotIndex,
+          declaredSlot,
           (cause as Record<string, unknown>).ref,
           ACTION_COMPILATION_FIELD_USES.cause,
         );
@@ -112,7 +115,7 @@ export function preprocessActionCompilationSymbols(input: {
         const item = assertion as Record<string, unknown>;
         const base = ["slots", slotIndex, "temporalPlan", "continuationAssertions", assertionIndex] as Array<string | number>;
         const field = (name: string, contract: ActionCompilationFieldContract) =>
-          repairField([...base, name], slotIndex, item[name], contract);
+          repairField([...base, name], declaredSlot, item[name], contract);
         switch (item.kind) {
           case "check_result": field("checkRef", ACTION_COMPILATION_FIELD_USES.assertionCheck); break;
           case "random_result":
@@ -123,7 +126,7 @@ export function preprocessActionCompilationSymbols(input: {
             field("factRef", ACTION_COMPILATION_FIELD_USES.assertionFact);
             if (item.expected && typeof item.expected === "object" && !Array.isArray(item.expected) &&
               (item.expected as Record<string, unknown>).kind === "entity") {
-              repairField([...base, "expected", "entityRef"], slotIndex,
+              repairField([...base, "expected", "entityRef"], declaredSlot,
                 (item.expected as Record<string, unknown>).entityRef,
                 ACTION_COMPILATION_FIELD_USES.assertionEntity);
             }
@@ -158,7 +161,7 @@ export function preprocessActionCompilationSymbols(input: {
         if (!Array.isArray(state[fieldName])) continue;
         state[fieldName].forEach((raw, index) => repairField(
           ["slots", slotIndex, "interactionDependency", "stateDependencies", fieldName, index],
-          slotIndex,
+          declaredSlot,
           raw,
           ACTION_COMPILATION_FIELD_USES.stateDependency,
         ));
@@ -167,7 +170,7 @@ export function preprocessActionCompilationSymbols(input: {
     if (Array.isArray(interaction.audienceAgentCandidateKeys)) interaction.audienceAgentCandidateKeys.forEach((raw, index) =>
       repairField(
         ["slots", slotIndex, "interactionDependency", "audienceAgentCandidateKeys", index],
-        slotIndex,
+        declaredSlot,
         raw,
         ACTION_COMPILATION_FIELD_USES.audience,
       ));
@@ -175,7 +178,7 @@ export function preprocessActionCompilationSymbols(input: {
       if (!claim || typeof claim !== "object" || Array.isArray(claim)) return;
       repairField(
         ["slots", slotIndex, "interactionDependency", "sharedResourceClaims", index, "resourcePoolCandidateKey"],
-        slotIndex,
+        declaredSlot,
         (claim as Record<string, unknown>).resourcePoolCandidateKey,
         ACTION_COMPILATION_FIELD_USES.resourcePool,
       );

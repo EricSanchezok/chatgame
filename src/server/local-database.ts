@@ -497,9 +497,9 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
       const current = this.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations")
         .get() as { version: number | null };
       const currentVersion = current.version ?? 0;
-      if (currentVersion > 7) throw new Error("local database schema is newer than this application");
-      if (currentVersion > 0 && currentVersion < 7) {
-        throw new Error("local database schema is older than v7; use a new LIVINGWORLD_DATA_ROOT");
+      if (currentVersion > 8) throw new Error("local database schema is newer than this application");
+      if (currentVersion > 0 && currentVersion < 8) {
+        throw new Error("local database schema is older than v8; use a new LIVINGWORLD_DATA_ROOT");
       }
       if (currentVersion === 0) this.connection.exec(`
         CREATE TABLE instance_lock (
@@ -689,15 +689,43 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
           updated_at TEXT NOT NULL
         ) STRICT;
         CREATE INDEX world_instances_world_version ON world_instances(world_id, world_hash);
+        CREATE TABLE experiment_enrollment_stops (
+          experiment_id TEXT NOT NULL,
+          experiment_version TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          stopped_at TEXT NOT NULL,
+          PRIMARY KEY (experiment_id, experiment_version)
+        ) STRICT;
       `);
       if (currentVersion === 0) {
-        this.connection.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (7, ?)")
+        this.connection.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (8, ?)")
           .run(new Date(this.now()).toISOString());
         this.connection.prepare("INSERT INTO debug_index_meta(singleton, version, rebuilt_at) VALUES (1, ?, ?)")
           .run(DEBUG_INDEX_VERSION, new Date(this.now()).toISOString());
       }
       return currentVersion === 0;
     })();
+  }
+
+  readExperimentEnrollmentStop(experimentId: string, experimentVersion: string): string | undefined {
+    const row = this.connection.prepare(`
+      SELECT reason FROM experiment_enrollment_stops
+      WHERE experiment_id = ? AND experiment_version = ?
+    `).get(experimentId, experimentVersion) as { reason: string } | undefined;
+    return row?.reason;
+  }
+
+  writeExperimentEnrollmentStop(experimentId: string, experimentVersion: string, reason: string): void {
+    this.assertWritable();
+    this.assertInstanceLease();
+    if (!experimentId.trim() || !experimentVersion.trim() || !reason.trim()) {
+      throw new Error("experiment enrollment stop requires id, version, and reason");
+    }
+    this.connection.prepare(`
+      INSERT OR IGNORE INTO experiment_enrollment_stops(
+        experiment_id, experiment_version, reason, stopped_at
+      ) VALUES (?, ?, ?, ?)
+    `).run(experimentId, experimentVersion, reason, new Date(this.now()).toISOString());
   }
 
   beginExecution(input: BeginExecutionInput): ExecutionTraceWriter {
@@ -1627,7 +1655,7 @@ export class LocalDatabase implements WorldRepository, WorldInstanceStore, Execu
       WHERE execution.id IS NULL
     `);
     const warnings: string[] = [];
-    if (schemaVersion !== 7) warnings.push(`expected database schema v7, found v${schemaVersion}`);
+    if (schemaVersion !== 8) warnings.push(`expected database schema v8, found v${schemaVersion}`);
     if (indexVersion !== DEBUG_INDEX_VERSION) warnings.push(`expected debug index v${DEBUG_INDEX_VERSION}, found v${indexVersion}`);
     if (indexedEventCount !== eventCount) warnings.push(`event index count ${indexedEventCount} differs from Ledger count ${eventCount}`);
     if (orphanedIndexRows > 0) warnings.push(`${orphanedIndexRows} orphaned debug index row(s)`);

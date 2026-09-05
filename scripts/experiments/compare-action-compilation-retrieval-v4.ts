@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CachedPassageEncoder } from "../../src/engine/algorithms/eager-reference/candidate-retrieval/embedding-cache";
@@ -65,6 +66,7 @@ async function main(argv: readonly string[]): Promise<number> {
       encoder,
       localEncoderFingerprint(encoder, ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION),
       options.cacheRoot,
+      true,
     );
     try {
       const runtime = createActionCompilationRetrievalRuntime({
@@ -79,6 +81,9 @@ async function main(argv: readonly string[]): Promise<number> {
       });
       const report = await evaluateActionCompilationRetrievalV4({ dataset, algorithm: "H2-runtime-joint-budget", runtime });
       const control = evaluateFullCatalogControlV4(dataset);
+      const datasetManifestHash = `sha256:${createHash("sha256")
+        .update(readFileSync(path.join(options.dataset, "manifest.json")))
+        .digest("hex")}`;
       const output = {
         schemaVersion: 4,
         kind: "action-compilation-retrieval-experiment-v4",
@@ -92,6 +97,11 @@ async function main(argv: readonly string[]): Promise<number> {
           dimensions: encoder.dimensions,
           libraryVersion: encoder.libraryVersion ?? null,
           libraryHash: encoder.libraryHash ?? null,
+        },
+        activation: {
+          datasetManifestHash,
+          worldContentHashes: [...new Set(dataset.cases.map((item) => item.source.worldHash))].sort(),
+          replayMatched: false,
         },
         runs: [control, report],
         recommendation: report.hardGate

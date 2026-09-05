@@ -2,7 +2,7 @@
 
 ## 状态边界
 
-`SimulationState` v15 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan、模型执行审计与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v20 在其外层固定带 opaque config 的 `AlgorithmRef`，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v4 artifact、调度配置和 WorldRun。
+`SimulationState` v15 是闭环仿真的持久状态：canonical world、全部 Agent 私有状态、准入提交、ResolutionPlan、ResolutionReceipt、TemporalPlan、模型执行审计与语义历史。Canonical world 持有世界时钟、带持久交互足迹的 Activity、Entity 共享资源池与 WorldTimer；`WorldInstanceDocument` v22 在其外层固定带 opaque config 的 `AlgorithmRef` 与不可变实验归属或排除原因，并保存 Participant、持久 Arrival、Participant intent、PolicyBinding、判别式 ActionWindow、Preparation v4 artifact、调度配置和 WorldRun。
 
 真人与自主主体使用同一个 `AgentState`。策略表必须精确覆盖全部 Agent：
 
@@ -36,7 +36,7 @@ Grounding 在同一次调用中生成 footprint 和 claims。分配器把 active
 
 终止 disposition 释放全部 claims，pause 按定义保留或释放。每次正时间提交先应用 disposition，再按相互连接的 pool 划分 FIFO 分量；每个分量遇到第一个无法完整满足的队首就停止，其他不相连分量仍可推进。满足者转为 `ready` 并持有原子 reservation，在下一次普通正时间步骤重新验证 assertions 后从当前 canonical 时间物化新 TemporalPlan；排队时间不回填进度。Entity retirement 或 capacity decrease 只有在同一 Candidate 释放足够 holder 时才合法。
 
-`eager-reference@14` 的阶段如下：
+`eager-reference@15` 的阶段如下：
 
 Truth Engine 的独立 interaction components 在 resolution、plan verification、transition、causal verification 与 observation 阶段使用固定 `truthBatchMaxSlots`（默认 12）slot batch。共享上下文完整发送一次，slot 仍独立校验、repair、审计和 replay；真实 global 或无法证明独立的分量保持原有全局路径。完整 batch 超过模型输入上限直接返回 `ContextLimitExceeded`，不缩小或裁剪上下文。
 

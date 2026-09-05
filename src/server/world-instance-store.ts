@@ -26,6 +26,35 @@ function requireText(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required`);
 }
 
+function validateExperimentEnrollment(document: WorldInstanceDocument): void {
+  const enrollment = document.experimentEnrollment;
+  if (enrollment === null) return;
+  requireText(enrollment.experimentId, "experiment enrollment id");
+  requireText(enrollment.experimentVersion, "experiment enrollment version");
+  requireText(enrollment.experimentManifestHash, "experiment enrollment manifest hash");
+  requireText(enrollment.variantId, "experiment enrollment variant id");
+  requireText(enrollment.assignmentHash, "experiment enrollment assignment hash");
+  if (!Number.isSafeInteger(enrollment.bucket) || enrollment.bucket < 0 || enrollment.bucket >= 10_000) {
+    throw new Error("experiment enrollment bucket must be an integer from 0 to 9999");
+  }
+  validateAlgorithmRef(enrollment.algorithmRef);
+  if (contentHash(enrollment.algorithmRef) !== contentHash(document.executionAlgorithm)) {
+    throw new Error("experiment enrollment algorithm does not match the pinned instance algorithm");
+  }
+  const { assignmentHash, ...body } = enrollment;
+  if (contentHash(body) !== assignmentHash) throw new Error("experiment enrollment assignment hash mismatch");
+}
+
+function validateExperimentExclusion(document: WorldInstanceDocument): void {
+  const exclusion = document.experimentExclusion;
+  if (exclusion === null) return;
+  if (!["explicit-execution-tuning", "no-active-experiment", "world-ineligible", "experiment-stopped"].includes(exclusion.reason)) {
+    throw new Error("experiment exclusion reason is invalid");
+  }
+  if (exclusion.detail !== null && typeof exclusion.detail !== "string") throw new Error("experiment exclusion detail is invalid");
+  if (document.experimentEnrollment) throw new Error("instance cannot have both experiment enrollment and exclusion");
+}
+
 function validateExternalAction(
   action: WorldInstanceDocument["runs"][string]["rootIntents"][number],
   label: string,
@@ -208,10 +237,15 @@ function validateActionWindow(document: WorldInstanceDocument): void {
 }
 
 export function validateWorldInstanceDocument(document: WorldInstanceDocument): void {
-  if (document.schemaVersion !== 21) throw new Error("world instance schema v21 required");
+  if (document.schemaVersion !== 22) throw new Error("world instance schema v22 required");
   requireText(document.id, "instance id");
   requireText(document.title, "instance title");
   validateAlgorithmRef(document.executionAlgorithm);
+  validateExperimentEnrollment(document);
+  validateExperimentExclusion(document);
+  if (document.experimentEnrollment === null && document.experimentExclusion === null) {
+    throw new Error("world instance must record experiment enrollment or exclusion");
+  }
   if (document.title.length > 80) throw new Error("instance title exceeds 80 characters");
   if (!Number.isFinite(Date.parse(document.createdAt)) || !Number.isFinite(Date.parse(document.updatedAt))) {
     throw new Error("instance timestamps must be ISO dates");

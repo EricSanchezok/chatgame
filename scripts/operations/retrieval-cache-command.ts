@@ -16,13 +16,8 @@ import {
   ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION,
   actionCompilationPassageEntriesForContext,
 } from "../../src/engine/algorithms/eager-reference/candidate-retrieval/graph-aware";
+import { actionCompilationPassagesForState } from "../../src/engine/algorithms/eager-reference/candidate-retrieval/warmup";
 import { loadActionCompilationReferenceDataset } from "../../src/engine/benchmarks/action-compilation/stabilized-behavior";
-import { createActionCompilationReferenceResolver } from "../../src/engine/contracts/model-context";
-import type { AgentActionProposal, SimulationState } from "../../src/engine/contracts/model";
-import {
-  actionGroundingReferenceResolver,
-  actionGroundingSharedContext,
-} from "../../src/engine/mechanics/action-dependency";
 import { loadModelCatalog } from "../../src/engine/models/model-catalog";
 import { loadWorldScript } from "../../src/script/world-loader";
 import { LocalDatabase } from "../../src/server/local-database";
@@ -73,7 +68,7 @@ function parseArgs(argv: readonly string[]): Options {
   const options: Options = {
     operation,
     cacheRoot: livingWorldCacheRoot(),
-    database: path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v20", "livingworld.sqlite"),
+    database: path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v22", "livingworld.sqlite"),
   };
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index]!;
@@ -97,30 +92,6 @@ function contextPassages(context: Readonly<Record<string, unknown>>): readonly s
   return actionCompilationPassageEntriesForContext(context).map((entry) => entry.passage);
 }
 
-function passagesForState(state: Readonly<SimulationState>): readonly string[] {
-  const passages = new Set<string>();
-  const collect = (actions: readonly AgentActionProposal[]): void => {
-    const slotByActionId = new Map(actions.map((action, slot) => [action.id, slot]));
-    const resolver = actionGroundingReferenceResolver(state, actions, slotByActionId);
-    const projected = actionGroundingSharedContext(state, actions, resolver, true).referenceResolver;
-    const catalog = createActionCompilationReferenceResolver(projected, projected).catalog;
-    contextPassages({ referenceCatalog: catalog }).forEach((passage) => passages.add(passage));
-  };
-  collect([]);
-  for (const agent of Object.values(state.agents).sort((left, right) => left.id.localeCompare(right.id))) {
-    collect([{
-      id: `retrieval-cache-warm:${agent.id}`,
-      actorId: agent.id,
-      baseRevision: state.revision,
-      rawText: "cache warmup",
-      goal: "prepare action compilation candidate passages",
-      means: null,
-      targetIds: Object.keys(agent.belief.localEntities).sort(),
-    }]);
-  }
-  return [...passages].sort();
-}
-
 function resolveWorldDirectory(value: string): string {
   const direct = path.resolve(value);
   if (existsSync(path.join(direct, "script.yaml"))) return direct;
@@ -142,7 +113,7 @@ function sourceFromOptions(options: Options): PassageSource {
     const database = new LocalDatabase(options.database, { readOnly: true });
     try {
       const state = database.readInstance(options.instance).document.state;
-      return { worldContentHash: state.worldHash, passages: passagesForState(state), source: `instance:${options.instance}` };
+      return { worldContentHash: state.worldHash, passages: actionCompilationPassagesForState(state), source: `instance:${options.instance}` };
     } finally {
       database.close();
     }
@@ -152,7 +123,7 @@ function sourceFromOptions(options: Options): PassageSource {
   const definition = loadWorldScript(directory, { seed: 1, modelCatalog });
   return {
     worldContentHash: definition.contentHash,
-    passages: passagesForState(definition.initialState),
+    passages: actionCompilationPassagesForState(definition.initialState),
     source: `world:${definition.id}`,
   };
 }
@@ -199,7 +170,12 @@ async function execute(options: Options): Promise<Record<string, unknown>> {
   if (options.operation === "rebuild") {
     for (const suffix of ["", "-shm", "-wal"]) rmSync(`${file}${suffix}`, { force: true });
   }
-  const cachedEncoder = new CachedPassageEncoder(encoder, encoderFingerprint, options.cacheRoot);
+  const cachedEncoder = new CachedPassageEncoder(
+    encoder,
+    encoderFingerprint,
+    options.cacheRoot,
+    options.operation === "verify",
+  );
   try {
     const result = await cachedEncoder.encodePassages({
       worldContentHash: source.worldContentHash,

@@ -1,7 +1,7 @@
 # Persistent encoder cache and instance canary enrollment
 
 Artifact-Version: 1
-Status: Approved
+Status: Implemented
 
 ## Intent
 
@@ -27,4 +27,10 @@ Prove cross-process cache reuse, exact invalidation, concurrent single-flight be
 
 ## Evidence
 
-Pending implementation.
+- [Persistent embedding cache](../../src/engine/algorithms/eager-reference/candidate-retrieval/embedding-cache.ts)
+- [Physical-batch retrieval runtime](../../src/engine/algorithms/eager-reference/candidate-retrieval/runtime.ts)
+- [Experiment registry](../../src/engine/runtime/experiments.ts)
+- [Server treatment preflight](../../src/server/action-compilation-retrieval-runtime.ts)
+- [Activation evidence verifier](../../src/server/experiment-activation.ts)
+- [v4 offline evaluation](../../benchmarks/action-compilation/fullcatalog-stabilized/evaluations/retrieval-runtime-ab-v4/README.md)
+- [Decision 0098 — Content-addressed embedding cache and immutable canary enrollment](../decisions/0098-content-addressed-embedding-cache-and-immutable-canary-enrollment.md)

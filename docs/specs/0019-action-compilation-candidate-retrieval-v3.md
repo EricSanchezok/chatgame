@@ -37,15 +37,10 @@ logistic SGD, learning rate 0.05, L2 0.0001, and at most 100 epochs. Fewer than
 200 cases or three independent snapshots produces an exploratory, non-
 promotable artifact.
 
-Production integration is opt-in through `CandidateRetrievalMiddleware` on
-`ModelExecutionScope`. It clones the full context, verifies visibility,
-anchors, and budget, prunes hidden references in retained details, and passes
-only the shortlist to the model gateway. The materializer, resolver, symbol
-repair, semantic validation, transaction, and commit paths retain the complete
-catalog. Missing anchors, invalid/private keys, over-budget output, and
-out-of-shortlist model references are recorded or rejected without an implicit
-FullCatalog retry. `isDeterministicCanary` assigns a stable 30% instance-level
-canary bucket from `sha256(instanceId + algorithmManifestHash) % 100`.
+Production ownership lives under `eager-reference/candidate-retrieval/`, while
+the benchmark calls that implementation through an adapter. Runtime promotion,
+physical-batch budgeting, per-slot membership, persistent embeddings, and
+immutable experiment enrollment are governed by [Spec 0020](0020-persistent-encoder-cache-and-instance-canary.md).
 
 Before middleware, full context and exact pre-step state may be captured in
 full observability mode. Capture is read-only and secret-scanned. Regeneration
@@ -55,8 +50,8 @@ overwritten.
 
 ## Plan
 
-Graph retrieval and v3 reporting live under
-`src/engine/benchmarks/action-compilation/`. The v3 comparison CLI writes only
+Graph retrieval lives under `src/engine/algorithms/eager-reference/candidate-retrieval/`
+and v3 reporting lives under `src/engine/benchmarks/action-compilation/`. The v3 comparison CLI writes only
 to a new evaluation directory and reports bootstrap confidence intervals,
 per-case risk, kind/use strata, union recall, and missing-path diagnostics.
 Training and source capture use `.livingworld-benchmarks/`, which is ignored by
@@ -73,8 +68,10 @@ The following prove the contract:
 - `npm run check:fast`
 
 The frozen v1 control has 46 cases, 24 contexts, and FullCatalog recall 1.0.
-The current local encoder asset is absent, so encoder runs report `blocked`
-until the pinned directory is installed; no automatic download is permitted.
+The pinned local encoder asset is content-addressed under `LIVINGWORLD_CACHE_ROOT`;
+evaluation and runtime loading remain local-only and never download a model.
+The v3 result does not meet the recall and physical-batch production gates and
+therefore cannot qualify a treatment.
 
 ## Evidence
 
@@ -82,3 +79,4 @@ until the pinned directory is installed; no automatic download is permitted.
 - [Graph-aware retriever tests](../../src/engine/benchmarks/action-compilation/retrievers/graph-aware.test.ts)
 - [Production retrieval runtime tests](../../src/engine/algorithms/eager-reference/candidate-retrieval/runtime.test.ts)
 - [Decision 0097 — Action Compilation graph-aware candidate retrieval](../decisions/0097-action-compilation-graph-retrieval.md)
+- [Spec 0020 — Persistent encoder cache and instance canary enrollment](0020-persistent-encoder-cache-and-instance-canary.md)

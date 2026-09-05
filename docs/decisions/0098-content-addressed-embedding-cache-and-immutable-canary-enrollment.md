@@ -31,6 +31,8 @@ Store candidate vectors in a separate local cache rooted at `LIVINGWORLD_CACHE_R
 
 Represent a canary as an immutable experiment manifest whose variants contain concrete `AlgorithmRef` values. Assign one variant from a domain-separated 10,000-bucket hash when an eligible instance is created, persist that enrollment, and use the selected algorithm manifest for every execution and replay. One experiment may be active in the world-execution layer, and a new experiment version is required to change weights or behavior.
 
+Persist a first-write-wins enrollment stop per experiment version in the local operational database. Cache integrity or runtime safety failure stops future instance assignment across process restarts without changing any existing enrollment or canonical world state.
+
 Candidate Retrieval applies a joint physical-batch budget and a per-slot membership gate. Symbol repair may search only the slot shortlist, while the complete resolver remains authoritative after membership succeeds. Missing cache data or treatment dependencies fail before provider work and never select the control variant implicitly.
 
 ## Pros and Cons of the Options

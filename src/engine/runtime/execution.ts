@@ -41,6 +41,7 @@ import type {
 } from "../mechanics/shared-activity-resources";
 import type { SharedResourceAdmission } from "../mechanics/shared-resource-allocation";
 import type { ExecutionStageHooks } from "./stages";
+import type { ActionCompilationRetrievalRuntime } from "../algorithms/eager-reference/candidate-retrieval/runtime";
 
 export type ExecutionKind = "interactive" | "diagnostic" | "benchmark" | "replay";
 
@@ -529,6 +530,7 @@ export interface WorldExecutionAlgorithm {
 export interface WorldExecutionAlgorithmServices {
   provider: StructuredModelProvider;
   rulePackages?: RulePackageRegistry;
+  actionCompilationRetrieval?: ActionCompilationRetrievalRuntime;
 }
 
 export type WorldExecutionAlgorithmFactory = (

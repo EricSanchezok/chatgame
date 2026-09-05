@@ -10,6 +10,7 @@ import type { AgentId, SimulationState } from "../engine/contracts/model";
 import type { ReactionRequest } from "../engine/contracts/model";
 import type { WorldRuntimeContract } from "../engine/runtime/world-definition";
 import type { ExecutionStageKey } from "../engine/runtime/stages";
+import type { ExperimentEnrollment } from "../engine/runtime/experiments";
 
 export interface ParticipantRecord {
   id: ParticipantId;
@@ -154,10 +155,15 @@ export interface ParticipantReactionRecord {
 }
 
 export interface WorldInstanceDocument {
-  schemaVersion: 21;
+  schemaVersion: 22;
   id: string;
   world: WorldRuntimeContract;
   executionAlgorithm: AlgorithmRef;
+  experimentEnrollment: ExperimentEnrollment | null;
+  experimentExclusion: {
+    reason: "explicit-execution-tuning" | "no-active-experiment" | "world-ineligible" | "experiment-stopped";
+    detail: string | null;
+  } | null;
   title: string;
   createdAt: string;
   updatedAt: string;

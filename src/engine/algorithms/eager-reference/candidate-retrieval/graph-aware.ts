@@ -8,7 +8,7 @@ import type { PassageEmbeddingEncoder } from "./embedding-cache";
 import { CachedQueryEncoder } from "./local-encoder";
 import type { ActionCompilationRetrievalRuntimeOptions, SlotRetrievalResult } from "./runtime";
 
-export const ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION = 1 as const;
+export const ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION = 2 as const;
 
 /** Relation types exposed by the C3 candidate graph. */
 export type CandidateGraphRelation =
@@ -569,9 +569,13 @@ function dot(left: readonly number[], right: readonly number[]): number {
   return result;
 }
 
-function candidateText(index: GraphIndex, candidate: Candidate): string {
-  const fields = index.fields.get(candidate.candidateKey);
-  return [fields?.label, fields?.meaning, fields?.details, fields?.metadata].filter(Boolean).join(" ");
+function stableCandidatePassage(candidate: Candidate): string {
+  return [
+    `kind: ${candidate.kind}`,
+    `uses: ${[...candidate.allowedUses].sort().join(" ")}`,
+    `label: ${candidate.label}`,
+    `meaning: ${candidate.meaning}`,
+  ].join(" ");
 }
 
 export function actionCompilationPassageEntriesForContext(
@@ -583,7 +587,7 @@ export function actionCompilationPassageEntriesForContext(
     .sort((left, right) => left.candidateKey.localeCompare(right.candidateKey))
     .map((candidate) => ({
       candidateKey: candidate.candidateKey,
-      passage: `passage: ${candidateText(index, candidate)}`,
+      passage: `passage: ${stableCandidatePassage(candidate)}`,
     }));
 }
 

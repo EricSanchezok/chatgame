@@ -30,6 +30,8 @@ import { loadModelCatalog } from "../engine/models/model-catalog";
 import { createModelGateway } from "../engine/models/model-gateway";
 import { createModelFetchResolver } from "../engine/models/model-network";
 import { contentHash } from "../engine/models/model-audit";
+import { AlgorithmExperimentRegistry } from "../engine/runtime/experiments";
+import type { ActionCompilationRetrievalRuntime } from "../engine/algorithms/eager-reference/candidate-retrieval/runtime";
 import { ModelRegistry } from "../engine/models/model-registry";
 import {
   modelInvocationCorrelation,
@@ -92,6 +94,8 @@ import type {
 } from "../shared/debug-api";
 import { runtimeCodeIdentity } from "./code-identity";
 import { installBundledWorlds } from "./bundled-worlds";
+import { loadAlgorithmExperimentRegistry } from "./experiment-catalog";
+import { actionCompilationRetrievalSupportForExperiment } from "./action-compilation-retrieval-runtime";
 import {
   DebugCheckpointModelProvider,
   EXECUTION_CHECKPOINT_SCHEMA_VERSION,
@@ -251,6 +255,12 @@ export interface WorldHostOptions {
   catalogManager?: WorldCatalogManager;
   ledger?: ExecutionLedger;
   algorithmRegistry?: WorldExecutionAlgorithmRegistry;
+  experimentRegistry?: AlgorithmExperimentRegistry;
+  actionCompilationRetrievalRuntimes?: ReadonlyMap<string, ActionCompilationRetrievalRuntime>;
+  experimentVariantPreflights?: ReadonlyMap<string, (input: {
+    worldContentHash: string;
+    state: Readonly<SimulationState>;
+  }) => Promise<void>>;
   defaultAlgorithmRef?: AlgorithmRef;
   now?: () => Date;
   idFactory?: () => string;
@@ -549,6 +559,7 @@ export class WorldHost {
   private static singleton: WorldHost | undefined;
   private readonly registry: WorldExecutionAlgorithmRegistry;
   private readonly defaultAlgorithmRef: AlgorithmRef;
+  private readonly experiments: AlgorithmExperimentRegistry;
   private readonly committer = new CanonicalCommitter();
   private readonly now: () => Date;
   private readonly idFactory: () => string;
@@ -592,6 +603,7 @@ export class WorldHost {
       }
     });
     this.registry = registerBuiltinAlgorithms(options.algorithmRegistry ?? new WorldExecutionAlgorithmRegistry());
+    this.experiments = options.experimentRegistry ?? new AlgorithmExperimentRegistry(this.registry);
     this.defaultAlgorithmRef = structuredClone(options.defaultAlgorithmRef ?? DEFAULT_ALGORITHM_REF);
     if (!this.registry.has(this.defaultAlgorithmRef)) {
       throw new Error(
@@ -614,7 +626,7 @@ export class WorldHost {
         /* turbopackIgnore: true */ process.env.LIVINGWORLD_MODEL_CATALOG_PATH ?? "config/models.yaml",
       ));
       const dataRoot = path.resolve(
-        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v20",
+        /* turbopackIgnore: true */ process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v22",
       );
       const modelRegistry = new ModelRegistry(catalog, dataRoot);
       modelRegistry.startBackgroundRefresh();
@@ -626,12 +638,19 @@ export class WorldHost {
       const database = new LocalDatabase(databaseFile);
       try {
         installBundledWorlds(database, provider.catalog);
+        const algorithmRegistry = registerBuiltinAlgorithms(new WorldExecutionAlgorithmRegistry());
+        const experimentRegistry = loadAlgorithmExperimentRegistry(algorithmRegistry, undefined, database);
+        const retrievalSupport = actionCompilationRetrievalSupportForExperiment(experimentRegistry);
         this.singleton = new WorldHost({
           repository: database,
           store: database,
           catalogManager: database,
           provider,
           ledger: database,
+          algorithmRegistry,
+          experimentRegistry,
+          actionCompilationRetrievalRuntimes: retrievalSupport.runtimes,
+          experimentVariantPreflights: retrievalSupport.preflights,
         });
       } catch (error) {
         modelRegistry.stopBackgroundRefresh();
@@ -708,12 +727,38 @@ export class WorldHost {
     return definition;
   }
 
+  private algorithmServices(ref: AlgorithmRef) {
+    const retrieval = this.options.actionCompilationRetrievalRuntimes?.get(ref.manifestHash);
+    return {
+      provider: this.options.provider,
+      rulePackages: this.options.repository.rulePackages,
+      ...(retrieval ? { actionCompilationRetrieval: retrieval } : {}),
+    };
+  }
+
+  private requiresActionCompilationRetrieval(ref: AlgorithmRef): boolean {
+    const config = ref.config as Record<string, unknown>;
+    const retrieval = config.candidateRetrieval;
+    return Boolean(retrieval && typeof retrieval === "object" && !Array.isArray(retrieval) &&
+      (retrieval as Record<string, unknown>).mode === "runtime");
+  }
+
   private assertExecutionAlgorithmAvailable(document: WorldInstanceDocument): void {
     if (!this.registry.has(document.executionAlgorithm)) {
       throw new Error(
         `execution algorithm is not registered: ${document.executionAlgorithm.id}` +
         `@${document.executionAlgorithm.version}`,
       );
+    }
+    if (document.experimentEnrollment) {
+      try {
+        this.experiments.validateEnrollment(document.id, document.experimentEnrollment);
+      } catch (error) {
+        this.experiments.stopNewEnrollment(
+          `historical experiment enrollment validation failure: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        throw error;
+      }
     }
   }
 
@@ -802,8 +847,29 @@ export class WorldHost {
         autonomousAgents: bindings.filter((binding) => binding.kind === "model").length,
         externalAgents: bindings.filter((binding) => binding.kind === "external").length,
         idleAgents: bindings.filter((binding) => binding.kind === "idle").length,
+        experimentId: document.experimentEnrollment?.experimentId ?? null,
+        experimentVersion: document.experimentEnrollment?.experimentVersion ?? null,
+        experimentVariant: document.experimentEnrollment?.variantId ?? null,
+        experimentAssignmentHash: document.experimentEnrollment?.assignmentHash ?? null,
       },
     });
+    if (document.experimentEnrollment) {
+      trace.emit({
+        event: "experiment.instance.enrolled",
+        correlation: { executionId: id, instanceId: document.id, revision: document.state.revision, step: document.state.step },
+        attributes: {
+          experimentId: document.experimentEnrollment.experimentId,
+          experimentVersion: document.experimentEnrollment.experimentVersion,
+          variantId: document.experimentEnrollment.variantId,
+          bucket: document.experimentEnrollment.bucket,
+        },
+        hashes: {
+          experimentManifest: document.experimentEnrollment.experimentManifestHash,
+          assignment: document.experimentEnrollment.assignmentHash,
+          algorithmManifest: document.experimentEnrollment.algorithmRef.manifestHash,
+        },
+      });
+    }
     return { id, trace };
   }
 
@@ -996,17 +1062,49 @@ export class WorldHost {
   async createInstance(
     input: CreateInstanceInput,
     principalId = "local",
-    executionAlgorithm: AlgorithmRef = this.defaultAlgorithmRef,
+    executionAlgorithm?: AlgorithmRef,
   ): Promise<PublicInstanceDetail> {
     const definition = this.options.repository.load(input.worldId, input.seed ?? 1, this.options.provider.catalog);
     await this.options.provider.assertProfilesAvailable(worldModelProfileIds(definition));
     const id = this.idFactory();
+    const experiment = this.experiments.enrollment({
+      instanceId: id,
+      worldContentHash: definition.contentHash,
+      defaultAlgorithmRef: executionAlgorithm ?? this.defaultAlgorithmRef,
+      explicitExecutionTuning: executionAlgorithm !== undefined,
+    });
+    const experimentPreflight = experiment.enrollment
+      ? this.options.experimentVariantPreflights?.get(experiment.algorithmRef.manifestHash)
+      : undefined;
+    if (experiment.enrollment && this.requiresActionCompilationRetrieval(experiment.algorithmRef) &&
+      (!experimentPreflight || !this.options.actionCompilationRetrievalRuntimes?.has(experiment.algorithmRef.manifestHash))) {
+      const reason = `candidate retrieval treatment dependencies are missing for ${experiment.algorithmRef.manifestHash}`;
+      this.experiments.stopNewEnrollment(reason);
+      throw new WorldHostError(`experiment treatment is not ready: ${reason}`, 503);
+    }
+    if (experimentPreflight) {
+      try {
+        await experimentPreflight({
+          worldContentHash: definition.contentHash,
+          state: definition.initialState,
+        });
+      } catch (error) {
+        throw new WorldHostError(
+          `experiment treatment is not ready: ${error instanceof Error ? error.message : String(error)}`,
+          503,
+        );
+      }
+    }
     const now = this.now().toISOString();
     const initial: WorldInstanceDocument = {
-      schemaVersion: 21,
+      schemaVersion: 22,
       id,
       world: toWorldRuntimeContract(definition),
-      executionAlgorithm: structuredClone(executionAlgorithm),
+      executionAlgorithm: structuredClone(experiment.algorithmRef),
+      experimentEnrollment: structuredClone(experiment.enrollment),
+      experimentExclusion: experiment.exclusionReason
+        ? { reason: experiment.exclusionReason, detail: experiment.exclusionDetail ?? null }
+        : null,
       title: input.title?.trim() || definition.name,
       createdAt: now,
       updatedAt: now,
@@ -1026,10 +1124,7 @@ export class WorldHost {
         400,
       );
     }
-    const algorithm = this.registry.create(initial.executionAlgorithm, {
-      provider: this.options.provider,
-      rulePackages: this.options.repository.rulePackages,
-    });
+    const algorithm = this.registry.create(initial.executionAlgorithm, this.algorithmServices(initial.executionAlgorithm));
     const execution = this.beginExecution(initial, "interactive", "bootstrap", algorithm.manifest);
     const engine = new SimulationEngine(
       definition,
@@ -1753,9 +1848,10 @@ export class WorldHost {
           recovery.completedStageIndex,
         )
       : this.options.provider;
+    const services = this.algorithmServices(document.executionAlgorithm);
     const algorithm = this.registry.create(document.executionAlgorithm, {
+      ...services,
       provider: executionProvider,
-      rulePackages: this.options.repository.rulePackages,
     });
     const execution = this.beginExecution(
       document,

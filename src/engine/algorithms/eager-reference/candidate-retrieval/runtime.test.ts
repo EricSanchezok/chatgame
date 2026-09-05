@@ -3,7 +3,7 @@ import { contentHash } from "../../../models/model-audit";
 import { createRuntimeGraphSlotRetriever } from "./graph-aware";
 import type { PassageEmbeddingEncoder } from "./embedding-cache";
 import type { LocalEncoderRuntime } from "./local-encoder";
-import { createActionCompilationRetrievalRuntime, experimentAssignmentBucket } from "./runtime";
+import { createActionCompilationRetrievalRuntime } from "./runtime";
 
 function context(): Record<string, unknown> {
   return {
@@ -71,14 +71,6 @@ describe("Action Compilation retrieval runtime", () => {
     await expect(invoke(["candidate_000000000001", "candidate_000000000014"])).rejects.toThrow(/private/u);
     await expect(invoke(["candidate_000000000001", "candidate_000000000001"])).rejects.toThrow(/duplicate/u);
     await expect(invoke(["candidate_000000000002"])).rejects.toThrow(/anchor missing/u);
-  });
-
-  it("uses a stable domain-separated basis-point bucket", () => {
-    const input = { experimentManifestHash: `sha256:${"1".repeat(64)}`, salt: "salt", instanceId: "instance-1", assignmentVersion: "v1" };
-    const bucket = experimentAssignmentBucket(input);
-    expect(experimentAssignmentBucket(input)).toBe(bucket);
-    expect(bucket).toBeGreaterThanOrEqual(0);
-    expect(bucket).toBeLessThan(10_000);
   });
 
   it("uses persistent passages with a dynamic process-cached query", async () => {

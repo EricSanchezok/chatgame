@@ -11,7 +11,7 @@ import type {
 } from "../engine/runtime/observability";
 import type { InteractionDependency } from "../engine/runtime/execution";
 
-export const WORLD_INSPECTOR_API_VERSION = 11 as const;
+export const WORLD_INSPECTOR_API_VERSION = 12 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -247,6 +247,22 @@ export interface WorldInspectorModelInvocationSummary {
   normalizedOutputHash: string | null;
   /** Trusted-only Action Compilation evidence; never included in model context. */
   actionCompilationReferenceAudit?: ActionCompilationReferenceAudit;
+  /** Trusted-only model-facing shortlist and local encoder cache evidence. */
+  actionCompilationRetrieval?: {
+    mode: "fullcatalog" | "shortlist";
+    runtimeVersion: string;
+    fullCatalogCount: number;
+    modelCatalogCount: number;
+    batchBudget: number;
+    batchShortlistRatio: number;
+    passageCacheHits: number;
+    passageCacheMisses: number;
+    queryCacheHits: number;
+    queryCacheMisses: number;
+    cacheReadMs: number;
+    queryEncodeMs: number;
+    perSlotSelectedCount: Readonly<Record<string, number>>;
+  };
   errorMessage?: string;
   hasPayload: boolean;
 }
@@ -355,6 +371,17 @@ export interface WorldInspectorWindow {
     step: number;
     elapsedSeconds: number;
     updatedAt: string;
+    experiment?: {
+      id: string;
+      version: string;
+      variant: string;
+      bucket: number;
+      assignmentHash: string;
+    };
+    experimentExclusion?: {
+      reason: string;
+      detail: string | null;
+    };
     run?: {
       id: string;
       generation: number;

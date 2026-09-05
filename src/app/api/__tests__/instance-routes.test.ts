@@ -115,12 +115,16 @@ describe("World Instance Route Handlers", () => {
     }));
     expect(headlessResponse.status).toBe(201);
     const headless = await headlessResponse.json();
+    expect(headless).not.toHaveProperty("experimentEnrollment");
+    expect(headless).not.toHaveProperty("experimentExclusion");
+    expect(headless).not.toHaveProperty("executionAlgorithm");
     expect(database.readInstance(headless.summary.id).document.executionAlgorithm.config).toEqual({
       actionCompilationMaxSlots: 3,
       agentMindMaxSlots: 2,
       reactionMaxSlots: 8,
       groundingMaxSlots: 16,
       truthBatchMaxSlots: 12,
+      candidateRetrieval: { mode: "off" },
     });
 
     const advancedResponse = await advanceInstance(jsonRequest(

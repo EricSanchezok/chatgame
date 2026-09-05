@@ -1056,6 +1056,41 @@ function ModelInvocationDetailPanel({
         <div><dt>profile / prompt</dt><dd><FactValue parts={[invocation.profileId ?? "—", invocation.promptVersion ?? "—"]} /></dd></div>
         <div><dt>schema</dt><dd>{invocation.schemaName ?? "—"}</dd></div>
       </dl>
+      {invocation.actionCompilationRetrieval && <DetailSection
+        collapsible
+        count={invocation.actionCompilationRetrieval.mode === "fullcatalog" ? "全量目录" : `${formatNumber(invocation.actionCompilationRetrieval.modelCatalogCount)} 个候选`}
+        description="本次模型调用实际看到的候选目录与本地向量缓存"
+        icon={Braces}
+        title="候选召回"
+      >
+        <dl className="cg-inspector-invocation-detail__facts">
+          <div><dt>模式 / 版本</dt><dd><FactValue parts={[
+            invocation.actionCompilationRetrieval.mode === "fullcatalog" ? "全量目录" : "候选短名单",
+            invocation.actionCompilationRetrieval.runtimeVersion,
+          ]} /></dd></div>
+          <div><dt>完整 / 模型可见</dt><dd><FactValue parts={[
+            formatNumber(invocation.actionCompilationRetrieval.fullCatalogCount),
+            formatNumber(invocation.actionCompilationRetrieval.modelCatalogCount),
+          ]} /></dd></div>
+          <div><dt>批次预算 / 比例</dt><dd><FactValue parts={[
+            formatNumber(invocation.actionCompilationRetrieval.batchBudget),
+            `${(invocation.actionCompilationRetrieval.batchShortlistRatio * 100).toFixed(1)}%`,
+          ]} /></dd></div>
+          <div><dt>passage 命中 / 缺失</dt><dd><FactValue parts={[
+            formatNumber(invocation.actionCompilationRetrieval.passageCacheHits),
+            formatNumber(invocation.actionCompilationRetrieval.passageCacheMisses),
+          ]} /></dd></div>
+          <div><dt>query 命中 / 缺失</dt><dd><FactValue parts={[
+            formatNumber(invocation.actionCompilationRetrieval.queryCacheHits),
+            formatNumber(invocation.actionCompilationRetrieval.queryCacheMisses),
+          ]} /></dd></div>
+          <div><dt>缓存读取 / query 编码</dt><dd><FactValue parts={[
+            formatDuration(invocation.actionCompilationRetrieval.cacheReadMs),
+            formatDuration(invocation.actionCompilationRetrieval.queryEncodeMs),
+          ]} /></dd></div>
+        </dl>
+        <JsonBlock label="查看各 slot 候选数量" value={invocation.actionCompilationRetrieval.perSlotSelectedCount} />
+      </DetailSection>}
       {invocation.actionCompilationReferenceAudit && <ActionCompilationAuditSection audit={invocation.actionCompilationReferenceAudit} />}
       <SymbolRepairSection repairs={invocation.symbolRepairs} normalization={invocation.normalization} />
       <DetailSection collapsible count={`${invocation.transportAttempts.length} 次`} description="同一次调用的传输请求与等待" icon={RotateCcw} title="传输重试（同一次调用）">

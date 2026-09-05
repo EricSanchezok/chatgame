@@ -982,12 +982,27 @@ export async function compileActions(
       const context = actionCompilationContext(state, batch, scope, fullBatchResolver);
       emitActionCompilationContextProjection(scope, owner, identity, context, lineage);
       const retrieval = scope.actionCompilationRetrieval
-        ? await scope.actionCompilationRetrieval.retrieveBatch({
-            worldContentHash: state.worldHash,
-            fullContext: context,
-            slotIndices: batch.map((_, slot) => slot),
-            signal: scope.abortSignal,
-          })
+        ? await (async () => {
+            try {
+              return await scope.actionCompilationRetrieval!.retrieveBatch({
+                worldContentHash: state.worldHash,
+                fullContext: context,
+                slotIndices: batch.map((_, slot) => slot),
+                signal: scope.abortSignal,
+              });
+            } catch (error) {
+              scope.observer?.emit({
+                event: "model.action_compilation.retrieval_failed",
+                correlation,
+                level: "error",
+                attributes: {
+                  runtimeVersion: scope.actionCompilationRetrieval!.version,
+                  reason: error instanceof Error ? error.message : String(error),
+                },
+              });
+              throw error;
+            }
+          })()
         : undefined;
       if (scope.observer) {
         const fullContextHash = retrieval?.fullContextHash ?? contentHash(context);
@@ -996,10 +1011,21 @@ export async function compileActions(
           correlation,
           attributes: { middlewareVersion: scope.actionCompilationRetrieval?.version ?? "fullcatalog-control", role: "action-compilation" },
           counts: {
+            slots: batch.length,
             selectedCandidates: retrieval?.diagnostics.selectedCount ?? context.referenceCatalog.candidates.length,
             visibleCandidates: retrieval?.diagnostics.visibleCount ?? context.referenceCatalog.candidates.length,
             prunedReferences: retrieval?.diagnostics.prunedReferenceCount ?? 0,
             anchors: retrieval?.diagnostics.anchorCount ?? 0,
+            batchBudget: retrieval?.diagnostics.batchBudget ?? context.referenceCatalog.candidates.length,
+            passageCacheHits: retrieval?.diagnostics.cache.passageHits ?? 0,
+            passageCacheMisses: retrieval?.diagnostics.cache.passageMisses ?? 0,
+            queryCacheHits: retrieval?.diagnostics.cache.queryHits ?? 0,
+            queryCacheMisses: retrieval?.diagnostics.cache.queryMisses ?? 0,
+          },
+          measurements: {
+            batchShortlistRatio: retrieval?.diagnostics.batchShortlistRatio ?? 1,
+            cacheReadMs: retrieval?.diagnostics.cache.readMs ?? 0,
+            queryEncodeMs: retrieval?.diagnostics.cache.queryEncodeMs ?? 0,
           },
           hashes: {
             fullContext: fullContextHash,
@@ -1014,7 +1040,13 @@ export async function compileActions(
             fullContext: context,
             stateSnapshot: state,
             actionIds: batch.map((entry) => entry.payload.action.id),
-            ...(retrieval ? { selectedKeysBySlot: [...retrieval.selectedKeysBySlot.entries()] } : {}),
+            ...(retrieval ? {
+              selectedKeysBySlot: [...retrieval.selectedKeysBySlot.entries()],
+              perSlotSelectedCount: retrieval.diagnostics.perSlotSelectedCount,
+              batchBudget: retrieval.diagnostics.batchBudget,
+              batchShortlistRatio: retrieval.diagnostics.batchShortlistRatio,
+              cache: retrieval.diagnostics.cache,
+            } : {}),
             fullContextHash,
             ...(retrieval ? { modelContextHash: retrieval.modelContextHash, shortlistHash: retrieval.shortlistHash } : {}),
             worldHash: scope.runtimeIdentity?.worldHash,

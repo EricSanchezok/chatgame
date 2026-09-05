@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "manifests": [
+    {
+      "schemaVersion": 1,
+      "layer": "world-execution",
+      "unit": "instance",
+      "id": "action-compilation-candidate-retrieval",
+      "version": "1",
+      "salt": "action-compilation-candidate-retrieval-v1",
+      "eligibility": {
+        "worldContentHashes": [
+          "sha256:996be2ba44b7d60b0af3170f362319c4b1919b3eeb18b7ff2361abc564a9a591"
+        ]
+      },
+      "variants": [
+        {
+          "id": "control",
+          "allocationBasisPoints": 7000,
+          "algorithmRef": {
+            "id": "eager-reference",
+            "version": "15",
+            "contractVersion": 5,
+            "config": {
+              "actionCompilationMaxSlots": 12,
+              "agentMindMaxSlots": 8,
+              "reactionMaxSlots": 8,
+              "groundingMaxSlots": 16,
+              "truthBatchMaxSlots": 12,
+              "candidateRetrieval": {
+                "mode": "off"
+              }
+            },
+            "manifestHash": "84016aa89eb89cda5f777c5be1c8dfd9110460d4ca7047242c4501991d89f3a4"
+          }
+        },
+        {
+          "id": "treatment",
+          "allocationBasisPoints": 3000,
+          "algorithmRef": {
+            "id": "eager-reference",
+            "version": "15",
+            "contractVersion": 5,
+            "config": {
+              "actionCompilationMaxSlots": 12,
+              "agentMindMaxSlots": 8,
+              "reactionMaxSlots": 8,
+              "groundingMaxSlots": 16,
+              "truthBatchMaxSlots": 12,
+              "candidateRetrieval": {
+                "mode": "runtime",
+                "runtimeVersion": "action-compilation-retrieval-runtime-v4",
+                "encoderFingerprint": "sha256:a3aa1027be8dca7c1ae920351e19f91ba331de9791a86be8bac309cfe7a2a726",
+                "budgetRatio": 0.2
+              }
+            },
+            "manifestHash": "c583968f746b4374a9bf65f60cfe3d678f276d97f6fce8dad64170691f21f85b"
+          }
+        }
+      ],
+      "activationEvidence": {
+        "artifactHash": "sha256:465fca4f2035017298745719fda08b698e110ee97d453cef838668aae9af309e",
+        "verifier": "action-compilation-retrieval-v4"
+      },
+      "hash": "de74a7f55a38b3f9df3167eda2a0bf30eacafffc267fde85c70353baac5b4b42"
+    }
+  ],
+  "active": []
+}

@@ -11,14 +11,18 @@ benchmarks/                                      # Git-tracked, reviewable artif
     v1/                                          # frozen behavioral reference
     evaluations/<experiment-id>/                 # offline reports; never rewrite v1
 .livingworld-benchmarks/                         # local-only, Git-ignored material
-  models/                                        # pinned encoder/ranker assets
+  models/                                        # exploratory ranker/training assets
   source/                                        # raw Ledger captures for regeneration
+.livingworld-cache/                              # local-only, Git-ignored runtime cache
+  models/multilingual-e5-small/<asset-hash>/     # pinned local Encoder asset
+  embeddings/action-compilation/                 # persistent passage vectors
 ```
 
 Only frozen benchmark shards, manifests, READMEs, and evaluation reports belong
 under `benchmarks/`. Provider requests, state snapshots used for regeneration,
-model weights, tokenizer caches, and training checkpoints stay under the
-ignored `.livingworld-benchmarks/` directory and must not contain credentials.
+source state snapshots and training checkpoints stay under the ignored
+`.livingworld-benchmarks/` directory. Encoder assets and derived embeddings
+stay under `.livingworld-cache/`. Neither local tree may contain credentials.
 
 `registry.json` is the index. A benchmark version is immutable once marked `frozen`; changes to the world snapshot, model/profile, prompt, Action Compilation projector, candidate-key format, repair policy, or dataset schema require a new version. Exported data is written to a staging directory and published only after shard hashes and semantic contracts pass verification.
 
@@ -28,7 +32,7 @@ Export a version from recorded Action Compilation evidence with:
 
 ```sh
 npm run benchmark:export:action-compilation-reference -- \
-  --database .livingworld-v20/livingworld.sqlite \
+  --database .livingworld-v22/livingworld.sqlite \
   --execution <execution-id> \
   --version 1
 ```
@@ -58,7 +62,7 @@ npm run benchmark:compare:action-compilation-retrieval-v3 -- \
 The v3 comparison uses a per-slot 20% budget and requires micro/macro recall
 at least 90%, average and p95 compression above 80%, zero invalid/private
 outputs, and deterministic results. The local `multilingual-e5-small` model
-must already exist under `.livingworld-benchmarks/models/`; evaluation disables
+must already exist under `.livingworld-cache/models/`; evaluation disables
 remote model loading and fails closed when the asset is missing. Use
 `--deterministic-only` to run the non-encoder tracks without a model asset.
 
@@ -79,43 +83,56 @@ manifest and replay/semantic-validation decision. The current 46-case
 dataset may produce an exploratory ranker only; promotion requires at least
 200 accepted cases from three independent world/catalog snapshots.
 
+Run the production-shaped v4 comparison after warming the persistent cache:
+
+```sh
+npm run retrieval:cache:warm -- --dataset benchmarks/action-compilation/fullcatalog-stabilized/v1
+npm run retrieval:cache:verify -- --dataset benchmarks/action-compilation/fullcatalog-stabilized/v1
+npm run benchmark:compare:action-compilation-retrieval-v4 -- --force
+```
+
+The v4 evaluator calls the same asynchronous retriever owned by `eager-reference`, applies one strict budget to each physical batch, and reports per-slot membership plus persistent-cache evidence. It remains offline: zero LLM requests, zero network requests, and zero world mutations. Its result is an activation input, not permission to enable a treatment; an experiment also needs successful replay evidence and every activation gate.
+
 ## Installing and checking the local encoder
 
 The encoder track uses the Transformers.js-compatible ONNX export of
-`intfloat/multilingual-e5-small`. Install it once into the ignored local asset
-directory (the download can be resumed if the ONNX file is large):
+`intfloat/multilingual-e5-small`. Install the pinned asset once into its
+content-addressed cache directory (the download can be resumed if the ONNX file is large):
 
 ```sh
-mkdir -p .livingworld-benchmarks/models/multilingual-e5-small
+mkdir -p .livingworld-cache/models/multilingual-e5-small/d36818af59d24cf4293a78d41f2194a215157aefcfccb4c650902c851a0a0b2c
 hf download Xenova/multilingual-e5-small \
   --revision 761b726dd34fb83930e26aab4e9ac3899aa1fa78 \
   --include config.json tokenizer.json tokenizer_config.json special_tokens_map.json onnx/model.onnx \
-  --local-dir .livingworld-benchmarks/models/multilingual-e5-small
+  --local-dir .livingworld-cache/models/multilingual-e5-small/d36818af59d24cf4293a78d41f2194a215157aefcfccb4c650902c851a0a0b2c
 ```
 
 `Xenova/multilingual-e5-small` is the local ONNX packaging; experiment
 manifests still record the semantic model ID as
 `intfloat/multilingual-e5-small`. Do not place model files in Git. The loader
-records the asset-directory SHA-256, runtime/library hash, embedding dimension,
+records the asset-directory SHA-256 plus the exact Transformers.js and
+`onnxruntime-node` package hashes, embedding dimension,
 prefixes, pooling, normalization, fixed 128-token truncation, and 128-item
 inference batches in `results.json`. Mutable downloader
 metadata under `.cache/` is excluded from the model hash. A valid install must
 load locally and produce 384-dimensional vectors:
 
 ```sh
-npx tsx -e 'import {loadLocalMultilingualE5Small} from "./src/engine/benchmarks/action-compilation/retrievers/local-encoder"; (async()=>{const e=await loadLocalMultilingualE5Small({modelDirectory:".livingworld-benchmarks/models/multilingual-e5-small"}); const v=await e.encodeBatch(["query: smoke-test"]); console.log({modelId:e.modelId,dimensions:e.dimensions,rows:v.length,vectorLength:v[0]?.length,modelHash:e.modelHash})})()'
+npx tsx -e 'import {discoverLocalEncoderModelDirectory,loadLocalMultilingualE5Small} from "./src/engine/algorithms/eager-reference/candidate-retrieval/local-encoder"; (async()=>{const e=await loadLocalMultilingualE5Small({modelDirectory:discoverLocalEncoderModelDirectory()}); const v=await e.encodeBatch(["query: smoke-test"]); console.log({modelId:e.modelId,dimensions:e.dimensions,rows:v.length,vectorLength:v[0]?.length,modelHash:e.modelHash})})()'
 ```
 
 If the directory is absent or corrupt, E1/H1/H2 and learned tracks are
 reported as `blocked`; evaluation never downloads a model, uses an online
 embedding service, or silently substitutes another model.
 
+Candidate passage embeddings are not recomputed on each evaluation or server restart. `retrieval:cache:warm` writes only missing exact passages, `retrieval:cache:verify` opens the selected SQLite read-only and validates every checksum, and `retrieval:cache:status` lists cache partitions without loading the Encoder. The dynamic slot query is still encoded per call and held only in a bounded process-local LRU.
+
 To capture the complete pre-shortlist context and immutable state evidence from
 a running Ledger (read-only, zero provider requests), use:
 
 ```sh
 npm run benchmark:capture:action-compilation -- \
-  --database .livingworld-v20/livingworld.sqlite \
+  --database .livingworld-v22/livingworld.sqlite \
   --execution <execution-id> \
   --output .livingworld-benchmarks/source/action-compilation
 ```
@@ -156,6 +173,6 @@ multiple executions are combined.
   it requires an explicit adapter plus an exact pre-step state snapshot.
 - Run `benchmark:verify:action-compilation-reference` after copying or
   archiving shards. Run `check:fast` after code or schema changes.
-- Keep model and reranker assets local and record their hashes in experiment
-  manifests. Never commit `.livingworld-benchmarks/`, provider headers, cookies,
-  API keys, or partial benchmark output.
+- Keep Encoder and reranker assets local and record their hashes in experiment
+  manifests. Never commit `.livingworld-cache/`, `.livingworld-benchmarks/`,
+  provider headers, cookies, API keys, or partial benchmark output.

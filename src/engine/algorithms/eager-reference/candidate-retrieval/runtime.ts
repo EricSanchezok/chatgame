@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { contentHash } from "../../../models/model-audit";
 
 export interface RankedCandidate {
@@ -234,14 +233,4 @@ export function createActionCompilationRetrievalRuntime(
       };
     },
   };
-}
-
-export function experimentAssignmentBucket(input: {
-  experimentManifestHash: string;
-  salt: string;
-  instanceId: string;
-  assignmentVersion: string;
-}): number {
-  const separated = ["living-world-experiment-assignment-v1", input.experimentManifestHash, input.salt, input.instanceId, input.assignmentVersion].join("\0");
-  return Number.parseInt(createHash("sha256").update(separated).digest("hex").slice(0, 8), 16) % 10_000;
 }

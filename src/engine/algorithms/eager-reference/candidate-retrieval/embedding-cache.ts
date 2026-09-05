@@ -93,35 +93,55 @@ interface EmbeddingRow {
 export class PersistentEmbeddingCache {
   readonly file: string;
   private readonly database: Database.Database;
+  private readonly readOnly: boolean;
 
-  constructor(cacheRoot: string, readonly identity: EmbeddingCacheIdentity) {
+  constructor(
+    cacheRoot: string,
+    readonly identity: EmbeddingCacheIdentity,
+    options: { readOnly?: boolean } = {},
+  ) {
     if (!Number.isSafeInteger(identity.dimensions) || identity.dimensions < 1) throw new Error("embedding dimensions must be a positive integer");
     this.file = embeddingCacheDatabasePath(cacheRoot, identity);
-    mkdirSync(path.dirname(this.file), { recursive: true });
-    this.database = new Database(this.file);
-    this.database.pragma("journal_mode = WAL");
-    this.database.pragma("synchronous = FULL");
+    this.readOnly = options.readOnly ?? false;
+    if (!this.readOnly) mkdirSync(path.dirname(this.file), { recursive: true });
+    this.database = new Database(this.file, this.readOnly ? { readonly: true, fileMustExist: true } : undefined);
+    if (!this.readOnly) {
+      this.database.pragma("journal_mode = WAL");
+      this.database.pragma("synchronous = FULL");
+    }
     this.database.pragma("busy_timeout = 5000");
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS cache_metadata (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      ) STRICT;
-      CREATE TABLE IF NOT EXISTS passage_embeddings (
-        passage_hash TEXT PRIMARY KEY CHECK (passage_hash GLOB 'sha256:*'),
-        dimensions INTEGER NOT NULL CHECK (dimensions > 0),
-        vector_hash TEXT NOT NULL CHECK (vector_hash GLOB 'sha256:*'),
-        vector_bytes BLOB NOT NULL
-      ) STRICT;
-    `);
+    if (!this.readOnly) {
+      this.database.exec(`
+        CREATE TABLE IF NOT EXISTS cache_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS passage_embeddings (
+          passage_hash TEXT PRIMARY KEY CHECK (passage_hash GLOB 'sha256:*'),
+          dimensions INTEGER NOT NULL CHECK (dimensions > 0),
+          vector_hash TEXT NOT NULL CHECK (vector_hash GLOB 'sha256:*'),
+          vector_bytes BLOB NOT NULL
+        ) STRICT;
+      `);
+    }
     const expected = new Map<string, string>([
       ["schemaVersion", String(EMBEDDING_CACHE_SCHEMA_VERSION)],
       ["worldContentHash", identity.worldContentHash],
       ["encoderFingerprint", identity.encoderFingerprint],
       ["dimensions", String(identity.dimensions)],
     ]);
-    const rows = this.database.prepare("SELECT key, value FROM cache_metadata ORDER BY key").all() as Array<{ key: string; value: string }>;
+    let rows: Array<{ key: string; value: string }>;
+    try {
+      rows = this.database.prepare("SELECT key, value FROM cache_metadata ORDER BY key").all() as Array<{ key: string; value: string }>;
+    } catch (error) {
+      this.database.close();
+      throw new EmbeddingCacheIntegrityError("embedding cache schema is missing or unreadable", { cause: error });
+    }
     if (rows.length === 0) {
+      if (this.readOnly) {
+        this.database.close();
+        throw new EmbeddingCacheIntegrityError("embedding cache metadata is missing");
+      }
       const insert = this.database.prepare("INSERT INTO cache_metadata (key, value) VALUES (?, ?)");
       this.database.transaction(() => {
         for (const [key, value] of expected) insert.run(key, value);
@@ -129,9 +149,15 @@ export class PersistentEmbeddingCache {
     } else {
       const actual = new Map(rows.map((row) => [row.key, row.value]));
       for (const [key, value] of expected) {
-        if (actual.get(key) !== value) throw new EmbeddingCacheIntegrityError(`embedding cache metadata mismatch for ${key}`);
+        if (actual.get(key) !== value) {
+          this.database.close();
+          throw new EmbeddingCacheIntegrityError(`embedding cache metadata mismatch for ${key}`);
+        }
       }
-      if (actual.size !== expected.size) throw new EmbeddingCacheIntegrityError("embedding cache contains unknown metadata fields");
+      if (actual.size !== expected.size) {
+        this.database.close();
+        throw new EmbeddingCacheIntegrityError("embedding cache contains unknown metadata fields");
+      }
     }
   }
 
@@ -153,6 +179,7 @@ export class PersistentEmbeddingCache {
   }
 
   write(entries: readonly { hash: string; vector: readonly number[] }[]): number {
+    if (this.readOnly) throw new EmbeddingCacheIntegrityError("embedding cache is read-only");
     const insert = this.database.prepare(`
       INSERT OR IGNORE INTO passage_embeddings (passage_hash, dimensions, vector_hash, vector_bytes)
       VALUES (?, ?, ?, ?)
@@ -201,6 +228,7 @@ export class CachedPassageEncoder implements PassageEmbeddingEncoder {
     readonly encoder: LocalEncoderRuntime,
     readonly encoderFingerprint: string,
     private readonly cacheRoot: string,
+    private readonly readOnly = false,
   ) {}
 
   private cache(worldContentHash: string): PersistentEmbeddingCache {
@@ -210,7 +238,7 @@ export class CachedPassageEncoder implements PassageEmbeddingEncoder {
       worldContentHash,
       encoderFingerprint: this.encoderFingerprint,
       dimensions: this.encoder.dimensions,
-    });
+    }, { readOnly: this.readOnly });
     this.caches.set(worldContentHash, cache);
     return cache;
   }
@@ -220,6 +248,7 @@ export class CachedPassageEncoder implements PassageEmbeddingEncoder {
     passages: readonly string[];
     allowWrite: boolean;
   }): Promise<PassageEncodingResult> {
+    if (this.readOnly && input.allowWrite) throw new EmbeddingCacheIntegrityError("read-only passage encoder cannot write cache entries");
     const cache = this.cache(input.worldContentHash);
     const uniqueTexts = [...new Set(input.passages)].sort();
     const hashByText = new Map(uniqueTexts.map((text) => [text, passageHash(text)]));
@@ -247,15 +276,25 @@ export class CachedPassageEncoder implements PassageEmbeddingEncoder {
         const hash = hashByText.get(text)!;
         const key = `${input.worldContentHash}:${this.encoderFingerprint}:${hash}`;
         const pending = batch.then((vectors) => vectors[index] ?? Promise.reject(new Error(`encoder omitted passage ${index}`)));
+        // The owning call can fail before it reaches the collection loop below.
+        // Attach a rejection observer now so a failed shared batch never leaks an
+        // unhandled promise while concurrent callers still receive the error.
+        void pending.catch(() => undefined);
         this.pending.set(key, pending);
         pendingVectors.set(hash, pending);
       });
       try {
         const vectors = await this.encoder.encodeBatch(ownedMisses);
         if (vectors.length !== ownedMisses.length) throw new EmbeddingCacheIntegrityError("encoder returned the wrong passage count");
-        resolveBatch(vectors);
         const entries = ownedMisses.map((text, index) => ({ hash: hashByText.get(text)!, vector: vectors[index]! }));
         written = cache.write(entries);
+        const persisted = cache.read(entries.map((entry) => entry.hash));
+        const storedVectors = entries.map((entry) => {
+          const vector = persisted.get(entry.hash);
+          if (!vector) throw new EmbeddingCacheIntegrityError(`persisted embedding is missing: ${entry.hash}`);
+          return vector;
+        });
+        resolveBatch(storedVectors);
       } catch (error) {
         rejectBatch(error);
         throw error;

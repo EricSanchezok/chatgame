@@ -951,8 +951,17 @@ export default function WorldInspectorDialog({
     setInvocationError("");
     closeActorDrawer();
   }, [closeActorDrawer]);
+  const experimentDescription = data?.instance.experiment
+    ? `实验 ${data.instance.experiment.id}@${data.instance.experiment.version} / ${data.instance.experiment.variant}`
+    : data?.instance.experimentExclusion?.reason === "explicit-execution-tuning"
+      ? "未加入实验（使用显式执行配置）"
+      : data?.instance.experimentExclusion?.reason === "world-ineligible"
+        ? "未加入实验（世界版本不符合条件）"
+        : data?.instance.experimentExclusion?.reason === "experiment-stopped"
+          ? "未加入实验（实验已停止接收新实例）"
+          : "未加入实验（当前无启用实验）";
   const statusDescription = data
-    ? `${data.instance.worldName} · Revision ${data.instance.revision} · ${data.trace.degraded ? "降级审计" : "完整审计"}`
+    ? `${data.instance.worldName} · Revision ${data.instance.revision} · ${experimentDescription} · ${data.trace.degraded ? "降级审计" : "完整审计"}`
     : "读取世界提交历史、Agent 演化与运行审计。";
 
   const returnToLatest = () => {

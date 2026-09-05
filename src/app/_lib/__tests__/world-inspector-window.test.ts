@@ -9,7 +9,7 @@ function inspectorWindow(
   const oldestRevision = revisions[0];
   const newestRevision = revisions.at(-1);
   return {
-    apiVersion: 11,
+    apiVersion: 12,
     instance: {
       id: "instance-1",
       title: "存档",

@@ -265,6 +265,33 @@ registerNumericFields("counts", ["model.output.normalized"], [
   ["lwe.model.symbol_repair.post_validation_rejected", "symbolRepairPostValidationRejected", "1", "sum"],
 ]);
 
+registerNumericFields("counts", ["model.action_compilation.context.captured"], [
+  ["lwe.model.candidate_retrieval.full_catalog_candidates", "visibleCandidates", "1", "sum"],
+  ["lwe.model.candidate_retrieval.model_catalog_candidates", "selectedCandidates", "1", "sum"],
+  ["lwe.model.candidate_retrieval.passage_cache_hits", "passageCacheHits", "1", "sum"],
+  ["lwe.model.candidate_retrieval.passage_cache_misses", "passageCacheMisses", "1", "sum"],
+  ["lwe.model.candidate_retrieval.query_cache_hits", "queryCacheHits", "1", "sum"],
+  ["lwe.model.candidate_retrieval.query_cache_misses", "queryCacheMisses", "1", "sum"],
+]);
+
+registerNumericFields("measurements", ["model.action_compilation.context.captured"], [
+  ["lwe.model.candidate_retrieval.batch_shortlist_ratio", "batchShortlistRatio", "1", "last"],
+  ["lwe.model.candidate_retrieval.cache_read", "cacheReadMs", "ms", "sum"],
+  ["lwe.model.candidate_retrieval.query_encode", "queryEncodeMs", "ms", "sum"],
+]);
+
+registerNumericFields("counts", ["model.action_compilation.out_of_shortlist"], [
+  ["lwe.model.candidate_retrieval.out_of_shortlist_references", "references", "1", "sum"],
+]);
+
+EXECUTION_METRICS.register({
+  name: "lwe.model.candidate_retrieval.failures",
+  unit: "1",
+  aggregation: "count",
+  source: { field: "event", name: "model.action_compilation.retrieval_failed" },
+  allowedDimensions: ["modelRole"],
+});
+
 registerNumericFields("counts", ["step.rolled_back", "instance.bootstrap.rolled_back"], [
   ["lwe.waste.discarded_calls", "discardedModelCalls", "1", "sum"],
   ["lwe.waste.rollbacks", "rollbacks", "1", "sum"],

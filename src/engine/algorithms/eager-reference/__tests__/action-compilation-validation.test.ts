@@ -168,4 +168,32 @@ describe("Action Compilation structural normalization", () => {
       });
     }
   });
+
+  it("uses the declared slot when repairing reordered batch output", () => {
+    const shared = createReferenceResolver([
+      { kind: "temporal_profile", engineId: "slot-zero", label: "Slot zero", meaning: "fixed", allowedUses: ["profile"], slot: 0, visibility: "slot" },
+      { kind: "temporal_profile", engineId: "slot-one", label: "Slot one", meaning: "fixed", allowedUses: ["profile"], slot: 1, visibility: "slot" },
+    ]);
+    const resolver = createActionCompilationReferenceResolver(shared);
+    const profiles = new Map(resolver.catalog.candidates.map((candidate) => [candidate.scope.kind === "slot" ? candidate.scope.slot : -1, candidate.candidateKey]));
+    const zero = profiles.get(0)!;
+    const one = profiles.get(1)!;
+    const result = preprocessActionCompilationSymbols({
+      resolver,
+      allowedCandidateKeysBySlot: new Map([[0, [zero]], [1, [one]]]),
+      value: {
+        slots: [
+          { slot: 1, temporalPlan: { profileRef: one.slice(0, -1) } },
+          { slot: 0, temporalPlan: { profileRef: zero.slice(0, -1) } },
+        ],
+      },
+    });
+
+    expect(result.value).toMatchObject({
+      slots: [
+        { slot: 1, temporalPlan: { profileRef: one } },
+        { slot: 0, temporalPlan: { profileRef: zero } },
+      ],
+    });
+  });
 });

@@ -669,6 +669,15 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
     const rawOutputHash = normalizationEvent?.hashes?.rawOutput ??
       (typeof persistedInvocation?.rawOutputHash === "string" ? persistedInvocation.rawOutputHash : undefined) ?? outputEvent?.hashes?.response ?? null;
     const tokenUsage = modelTokenUsage(ordered);
+    const retrievalEvent = ordered.find((event) => event.event === "model.action_compilation.context.captured");
+    const retrievalPayload = retrievalEvent?.payload && typeof retrievalEvent.payload === "object" && !Array.isArray(retrievalEvent.payload)
+      ? retrievalEvent.payload as Record<string, unknown>
+      : undefined;
+    const rawPerSlotSelectedCount = retrievalPayload?.perSlotSelectedCount;
+    const perSlotSelectedCount = rawPerSlotSelectedCount && typeof rawPerSlotSelectedCount === "object" && !Array.isArray(rawPerSlotSelectedCount)
+      ? Object.fromEntries(Object.entries(rawPerSlotSelectedCount as Record<string, unknown>)
+          .filter((entry): entry is [string, number] => typeof entry[1] === "number"))
+      : {};
     const context = contextDocument?.context;
     const requestMeasurements = contextEvent?.measurements;
     const queueWaitMs = transportAttempts.reduce((sum, attempt) => sum + attempt.queueWaitMs, 0);
@@ -777,6 +786,23 @@ function modelInvocationProjection(events: readonly RuntimeEvent[]): WorldInspec
       rawOutputHash,
       normalizedOutputHash,
       ...(actionCompilationReferenceAudit ? { actionCompilationReferenceAudit } : {}),
+      ...(retrievalEvent ? {
+        actionCompilationRetrieval: {
+          mode: retrievalEvent.attributes?.middlewareVersion === "fullcatalog-control" ? "fullcatalog" as const : "shortlist" as const,
+          runtimeVersion: String(retrievalEvent.attributes?.middlewareVersion ?? "unknown"),
+          fullCatalogCount: retrievalEvent.counts?.visibleCandidates ?? 0,
+          modelCatalogCount: retrievalEvent.counts?.selectedCandidates ?? 0,
+          batchBudget: retrievalEvent.counts?.batchBudget ?? 0,
+          batchShortlistRatio: retrievalEvent.measurements?.batchShortlistRatio ?? 0,
+          passageCacheHits: retrievalEvent.counts?.passageCacheHits ?? 0,
+          passageCacheMisses: retrievalEvent.counts?.passageCacheMisses ?? 0,
+          queryCacheHits: retrievalEvent.counts?.queryCacheHits ?? 0,
+          queryCacheMisses: retrievalEvent.counts?.queryCacheMisses ?? 0,
+          cacheReadMs: retrievalEvent.measurements?.cacheReadMs ?? 0,
+          queryEncodeMs: retrievalEvent.measurements?.queryEncodeMs ?? 0,
+          perSlotSelectedCount,
+        },
+      } : {}),
       ...(errorEvent?.error?.message ? { errorMessage: diagnosticErrorMessage(errorEvent.error) } : {}),
       hasPayload: ordered.some((event) => event.payload !== undefined),
       lineage,
@@ -1371,6 +1397,16 @@ export function buildWorldInspectorWindow(
       step: document.state.step,
       elapsedSeconds: document.state.truth.elapsedSeconds,
       updatedAt: document.updatedAt,
+      ...(document.experimentEnrollment ? {
+        experiment: {
+          id: document.experimentEnrollment.experimentId,
+          version: document.experimentEnrollment.experimentVersion,
+          variant: document.experimentEnrollment.variantId,
+          bucket: document.experimentEnrollment.bucket,
+          assignmentHash: document.experimentEnrollment.assignmentHash,
+        },
+      } : {}),
+      ...(document.experimentExclusion ? { experimentExclusion: structuredClone(document.experimentExclusion) } : {}),
       ...(activeRun ? {
         run: {
           id: activeRun.id,

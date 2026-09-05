@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ActionCompilationReferenceDataset } from "../stabilized-behavior";
 import {
+  actionCompilationPassageEntriesForContext,
   clearGraphAwareRetrieverCaches,
   createGraphAwareActionCompilationRetriever,
 } from "../../../algorithms/eager-reference/candidate-retrieval/graph-aware";
@@ -75,5 +76,18 @@ describe("graph-aware Action Compilation retriever", () => {
   it("fails closed when encoder strategies are constructed without a local encoder", async () => {
     await expect(createGraphAwareActionCompilationRetriever("graph-encoder", fixture()))
       .rejects.toThrow(/local encoder runtime/u);
+  });
+
+  it("keeps encoder passages stable when action-specific candidate details change", () => {
+    const context = fixture().contexts.values().next().value!.context;
+    const changed = structuredClone(context);
+    const catalog = changed.referenceCatalog as { hash: string; candidates: Array<{ details?: unknown }> };
+    catalog.candidates[1]!.details = {
+      entityRef: "candidate_000000000003",
+      description: "only visible for this action",
+    };
+    catalog.hash = "graph-fixture-changed-details";
+    expect(actionCompilationPassageEntriesForContext(changed))
+      .toEqual(actionCompilationPassageEntriesForContext(context));
   });
 });

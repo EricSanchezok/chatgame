@@ -477,6 +477,7 @@ describe("Execution Ledger", () => {
         reactionMaxSlots: 8,
         groundingMaxSlots: 16,
         truthBatchMaxSlots: 12,
+        candidateRetrieval: { mode: "off" },
       });
       expect(candidatePartitions(ledger.executionEvents(original!.id))).toMatchObject({
         resolution: {
