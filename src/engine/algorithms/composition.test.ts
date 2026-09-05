@@ -59,6 +59,14 @@ describe("hierarchical algorithm composition", () => {
       config: {},
       children: { "not-a-slot": valid },
     })).toThrow("child slot is invalid");
+    expect(() => leaf("candidate-selection", "Not-Kebab")).toThrow("id must be kebab-case");
+    expect(() => defineAlgorithmRef({
+      role: "candidate-selection",
+      id: "full-catalog",
+      version: "1/preview",
+      contractVersion: 1,
+      config: {},
+    })).toThrow("version contains unsupported characters");
   });
 
   it("validates exact roles, configurations, and child schemas before factories run", () => {
@@ -149,5 +157,37 @@ describe("hierarchical algorithm composition", () => {
     const ref = leaf("output-recovery", "localized");
     reused.resolve(ref, {});
     expect(() => reused.resolve(ref, {})).toThrow("reused an implementation");
+  });
+
+  it("snapshots definitions and enforces maturity across the complete tree", () => {
+    const registry = new AlgorithmRegistry();
+    const diagnostic = {
+      ...identity("candidate-selection" as const, "experimental-selector"),
+      maturity: "diagnostic" as const,
+      configSchema: z.strictObject({}),
+      children: [] as Array<{ name: string; role: AlgorithmRole }>,
+      create: () => new ProbeAlgorithm(identity("candidate-selection", "experimental-selector")),
+    };
+    registry.register(diagnostic);
+    registry.register({
+      ...identity("world-execution", "root"),
+      maturity: "reference",
+      configSchema: z.strictObject({}),
+      children: [{ name: "selection", role: "candidate-selection" }],
+      create: () => new ProbeAlgorithm(identity("world-execution", "root")),
+    });
+    const composition = defineAlgorithmRef({
+      ...identity("world-execution", "root"),
+      config: {},
+      children: { selection: leaf("candidate-selection", "experimental-selector") },
+    });
+
+    diagnostic.id = "mutated-selector";
+    diagnostic.children.push({ name: "unexpected", role: "symbol-repair" });
+    expect(registry.list().some((entry) => entry.id === "experimental-selector")).toBe(true);
+    expect(registry.validateTree(composition)).toBeUndefined();
+    expect(() => registry.validateTreeMaturity(composition, ["reference", "candidate"]))
+      .toThrow("root.selection algorithm maturity is not allowed");
+    expect(registry.validateTreeMaturity(composition, ["reference", "diagnostic"])).toBeUndefined();
   });
 });

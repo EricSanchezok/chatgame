@@ -91,14 +91,28 @@ function requiredText(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${label} is required`);
 }
 
+function validateAlgorithmId(value: unknown, label: string): asserts value is string {
+  requiredText(value, label);
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(value)) {
+    throw new Error(`${label} must be kebab-case`);
+  }
+}
+
+function validateAlgorithmVersion(value: unknown, label: string): asserts value is string {
+  requiredText(value, label);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value)) {
+    throw new Error(`${label} contains unsupported characters`);
+  }
+}
+
 function validateRole(value: unknown, label: string): asserts value is AlgorithmRole {
   if (typeof value !== "string" || !roles.has(value)) throw new Error(`${label} is invalid: ${String(value)}`);
 }
 
 function validateIdentity(value: AlgorithmIdentity, label: string): void {
   validateRole(value.role, `${label} role`);
-  requiredText(value.id, `${label} id`);
-  requiredText(value.version, `${label} version`);
+  validateAlgorithmId(value.id, `${label} id`);
+  validateAlgorithmVersion(value.version, `${label} version`);
   if (!Number.isSafeInteger(value.contractVersion) || value.contractVersion < 1) {
     throw new Error(`${label} contract version must be a positive integer`);
   }
@@ -195,7 +209,11 @@ export class AlgorithmRegistry<Services extends object = Record<string, never>> 
     }
     const key = definitionKey(definition);
     if (this.definitions.has(key)) throw new Error(`algorithm is already registered: ${key}`);
-    this.definitions.set(key, definition as AlgorithmDefinition<AlgorithmRole, Services>);
+    const registered = Object.freeze({
+      ...definition,
+      children: Object.freeze(definition.children.map((child) => Object.freeze({ ...child }))),
+    }) as AlgorithmDefinition<AlgorithmRole, Services>;
+    this.definitions.set(key, registered);
   }
 
   list(): readonly AlgorithmCatalogEntry[] {
@@ -223,6 +241,12 @@ export class AlgorithmRegistry<Services extends object = Record<string, never>> 
   validateTree(ref: AlgorithmRef): void {
     validateAlgorithmRef(ref);
     this.validateNode(ref, "root");
+  }
+
+  validateTreeMaturity(ref: AlgorithmRef, allowed: readonly AlgorithmMaturity[]): void {
+    this.validateTree(ref);
+    const allowedMaturities = new Set(allowed);
+    this.validateNodeMaturity(ref, "root", allowedMaturities);
   }
 
   resolve<R extends AlgorithmRole>(ref: AlgorithmRef<R>, services: Readonly<Services>): ResolvedAlgorithm<R> {
@@ -260,6 +284,20 @@ export class AlgorithmRegistry<Services extends object = Record<string, never>> 
         throw new Error(`${path}.${slot} algorithm role must be ${expectedRole}, got ${child.role}`);
       }
       this.validateNode(child, `${path}.${slot}`);
+    }
+  }
+
+  private validateNodeMaturity(
+    ref: AlgorithmRef,
+    path: string,
+    allowed: ReadonlySet<AlgorithmMaturity>,
+  ): void {
+    const definition = this.definition(ref);
+    if (!allowed.has(definition.maturity)) {
+      throw new Error(`${path} algorithm maturity is not allowed: ${definitionKey(ref)} is ${definition.maturity}`);
+    }
+    for (const [slot, child] of Object.entries(ref.children)) {
+      this.validateNodeMaturity(child, `${path}.${slot}`, allowed);
     }
   }
 

@@ -139,6 +139,7 @@ export class AlgorithmExperimentRegistry {
       if (!this.algorithms.has(variant.algorithmRef)) {
         throw new Error(`experiment variant algorithm is not registered: ${variant.algorithmRef.id}@${variant.algorithmRef.version}`);
       }
+      this.algorithms.validateExperimentComposition(variant.algorithmRef);
     }
     const key = `${manifest.id}@${manifest.version}`;
     if (this.manifests.has(key)) throw new Error(`algorithm experiment is already registered: ${key}`);

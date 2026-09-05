@@ -532,6 +532,11 @@ export class WorldExecutionAlgorithmRegistry {
     return ref.role === "world-execution" && this.algorithms.has(ref);
   }
 
+  validateExperimentComposition(ref: AlgorithmRef): void {
+    if (ref.role !== "world-execution") throw new Error(`world-execution algorithm role is required, got ${ref.role}`);
+    this.algorithms.validateTreeMaturity(ref, ["reference", "candidate"]);
+  }
+
   create(ref: AlgorithmRef, services: Readonly<WorldExecutionAlgorithmServices>): WorldExecutionAlgorithm {
     validateAlgorithmRef(ref);
     if (ref.role !== "world-execution") throw new Error(`world-execution algorithm role is required, got ${ref.role}`);
