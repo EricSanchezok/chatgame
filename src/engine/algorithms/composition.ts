@@ -116,6 +116,13 @@ export function defineAlgorithmRef<R extends AlgorithmRole>(input: {
   config: JsonObject;
   children?: Readonly<Record<string, AlgorithmRef>>;
 }): AlgorithmRef<R> {
+  validateIdentity(input, "algorithm");
+  assertJsonObject(input.config, "algorithm config");
+  for (const [slot, child] of Object.entries(input.children ?? {})) {
+    requiredText(slot, "algorithm child slot");
+    if (!/^[a-z][A-Za-z0-9]*$/u.test(slot)) throw new Error(`algorithm child slot is invalid: ${slot}`);
+    validateAlgorithmRef(child, `root.${slot}`);
+  }
   const body = refBody({
     role: input.role,
     id: input.id,
