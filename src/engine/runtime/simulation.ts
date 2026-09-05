@@ -151,6 +151,24 @@ function compositionNodeIdentities(manifest: AlgorithmManifest): ReadonlyMap<str
 function algorithmPathForEvent(input: RuntimeEventInput): string {
   const event = input.event;
   const modelRole = input.correlation?.modelRole;
+  if (event === "algorithm.eager_reference.slot_batch_completed") {
+    const phase = input.attributes?.phase;
+    if (phase === "action-compilation") return "root.actionCompilation.batching";
+    if (phase === "agent-bootstrap" || phase === "agent-resume" || phase === "agent-mind") {
+      return "root.agentCognition.batching";
+    }
+    if (phase === "observation") return "root.observationRendering.batching";
+    if (typeof phase === "string" && phase.startsWith("truth-")) return "root.truthResolution.batching";
+  }
+  if (event === "algorithm.agent_mind.repair_exhausted" || event === "algorithm.agent_mind.repair_fallback") {
+    return "root.agentCognition.recovery";
+  }
+  if (event === "algorithm.agent_reaction.repair_exhausted" || event === "algorithm.agent_reaction.repair_fallback" ||
+    event === "algorithm.truth_perception.repair_exhausted" || event === "algorithm.truth_perception.repair_fallback") {
+    return "root.reactionResolution.recovery";
+  }
+  if (event === "algorithm.observation.repair_fallback") return "root.observationRendering.recovery";
+  if (event === "algorithm.observation.batch_split") return "root.observationRendering.batching";
   if (event.includes("action_compilation.retrieval") || event === "model.action_compilation.context.captured") {
     return "root.actionCompilation.candidateSelection";
   }

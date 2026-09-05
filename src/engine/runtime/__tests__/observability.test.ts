@@ -244,6 +244,15 @@ describe("model context measurements", () => {
         id: "model-action-compilation",
       }),
     }));
+    expect(observer.snapshot()).toContainEqual(expect.objectContaining({
+      event: "algorithm.eager_reference.slot_batch_completed",
+      attributes: expect.objectContaining({ phase: "agent-bootstrap" }),
+      algorithm: expect.objectContaining({
+        path: "root.agentCognition.batching",
+        role: "work-batching",
+        id: "bounded-slot-batching",
+      }),
+    }));
   });
 
   it("accounts for discarded model work when candidate generation fails", async () => {

@@ -133,6 +133,11 @@ describe("execution kernel boundary", () => {
       config: hiddenConfig,
       children: {},
     })).toThrow("enumerable data property");
+    const valid = algorithmManifest("extra-field");
+    expect(() => new WorldExecutionAlgorithmRegistry().register(
+      { ...valid, uncommittedMetadata: true } as never,
+      () => new MutatingAlgorithm(valid),
+    )).toThrow("manifest fields must be exactly");
   });
 
   it("rejects unsupported contracts, unknown hashes, and wrong factory manifests", () => {

@@ -191,6 +191,20 @@ function configuredDefinition<R extends AlgorithmRole>(input: Omit<
   };
 }
 
+function candidateSelectionRuntime(
+  services: Readonly<WorldExecutionAlgorithmServices>,
+  ref: AlgorithmRef<"candidate-selection">,
+): CandidateSelectionCapability {
+  const runtime = services.resources?.resolve<CandidateSelectionCapability>("candidate-selection-runtime", ref);
+  if (!runtime) throw new Error("graph-hybrid-e5 candidate selection requires its pinned runtime");
+  if (runtime.role !== "candidate-selection" ||
+    runtime.version !== ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION ||
+    typeof runtime.retrieveBatch !== "function") {
+    throw new Error("graph-hybrid-e5 candidate selection received an incompatible runtime");
+  }
+  return runtime;
+}
+
 const definitions = [
   configuredDefinition({
     ...identity("work-batching", "bounded-slot-batching"),
@@ -235,12 +249,16 @@ const definitions = [
       rankerArtifactHash: z.null(),
     }),
     children: noChildren,
+    preflight: ({ services, ref }) => {
+      candidateSelectionRuntime(services, ref as AlgorithmRef<"candidate-selection">);
+    },
   }, (algorithmIdentity, config, children, services, ref) => {
-    const runtime = services.resources?.resolve<CandidateSelectionCapability>("candidate-selection-runtime", ref);
-    if (!runtime) {
-      throw new Error("graph-hybrid-e5 candidate selection requires its pinned runtime");
-    }
-    return new CandidateSelectionAlgorithm(algorithmIdentity, config, children, runtime);
+    return new CandidateSelectionAlgorithm(
+      algorithmIdentity,
+      config,
+      children,
+      candidateSelectionRuntime(services, ref),
+    );
   }),
   configuredDefinition({
     ...identity("symbol-repair", "bounded-symbol-repair"),

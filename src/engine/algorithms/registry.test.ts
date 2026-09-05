@@ -3,8 +3,16 @@ import { z } from "zod";
 import { DeterministicModelProvider } from "../testing/model-provider";
 import { WorldExecutionAlgorithmRegistry } from "../runtime/execution";
 import { defineAlgorithmRef, type AlgorithmRef, type AlgorithmRole } from "./composition";
-import { DEFAULT_ALGORITHM_REF, registerBuiltinAlgorithms } from "./registry";
-import { EagerReferenceAlgorithm } from "./eager-reference/eager-reference";
+import {
+  ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
+  DEFAULT_ALGORITHM_REF,
+  eagerReferenceAlgorithmRef,
+  registerBuiltinAlgorithms,
+} from "./registry";
+import {
+  DEFAULT_EAGER_REFERENCE_CONFIG,
+  EagerReferenceAlgorithm,
+} from "./eager-reference/eager-reference";
 
 function replaceChild<R extends AlgorithmRole>(
   ref: AlgorithmRef<R>,
@@ -124,5 +132,31 @@ describe("built-in algorithm registry", () => {
 
     expect(algorithm).toBeInstanceOf(EagerReferenceAlgorithm);
     expect((algorithm as EagerReferenceAlgorithm).config.actionCompilationMaxSlots).toBe(3);
+  });
+
+  it("fails preflight for missing or incompatible candidate-selection resources", () => {
+    const registry = registerBuiltinAlgorithms(new WorldExecutionAlgorithmRegistry());
+    const treatment = eagerReferenceAlgorithmRef({
+      ...DEFAULT_EAGER_REFERENCE_CONFIG,
+      candidateRetrieval: {
+        mode: "runtime",
+        runtimeVersion: ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
+        encoderFingerprint: `sha256:${"1".repeat(64)}`,
+        budgetRatio: 0.2,
+      },
+    });
+    const provider = new DeterministicModelProvider();
+
+    expect(() => registry.create(treatment, { provider })).toThrow("requires its pinned runtime");
+    expect(() => registry.create(treatment, {
+      provider,
+      resources: {
+        resolve: () => ({
+          role: "candidate-selection",
+          version: "wrong-runtime",
+          retrieveBatch: async () => { throw new Error("unused"); },
+        }) as never,
+      },
+    })).toThrow("received an incompatible runtime");
   });
 });

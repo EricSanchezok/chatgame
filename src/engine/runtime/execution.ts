@@ -97,6 +97,18 @@ export interface EngineOperationManifest {
 
 export type ExecutionProducerManifest = AlgorithmManifest | EngineOperationManifest;
 
+const algorithmManifestFields = [
+  "children", "config", "contractVersion", "hash", "id", "kind", "role", "version",
+].sort();
+const engineOperationManifestFields = ["config", "contractVersion", "hash", "id", "kind", "version"].sort();
+
+function validateManifestFields(value: object, expected: readonly string[], label: string): void {
+  const actual = Object.keys(value).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
+  }
+}
+
 function requireManifestText(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required`);
 }
@@ -149,6 +161,7 @@ export function validateExecutionProducerManifest(manifest: ExecutionProducerMan
   requireManifestText(manifest.version, "execution producer version");
   assertJsonValue(manifest.config, "execution producer config");
   if (manifest.kind === "algorithm") {
+    validateManifestFields(manifest, algorithmManifestFields, "execution algorithm manifest");
     const contractVersion = Number(manifest.contractVersion);
     if (contractVersion !== WORLD_EXECUTION_CONTRACT_VERSION) {
       throw new Error(`unsupported execution algorithm contract version: ${contractVersion}`);
@@ -156,6 +169,7 @@ export function validateExecutionProducerManifest(manifest: ExecutionProducerMan
     validateCompositionRef(algorithmRef(manifest));
     return;
   } else if (manifest.kind === "engine-operation") {
+    validateManifestFields(manifest, engineOperationManifestFields, "engine operation manifest");
     const contractVersion = Number(manifest.contractVersion);
     if (contractVersion !== ENGINE_OPERATION_CONTRACT_VERSION) {
       throw new Error(`unsupported engine operation contract version: ${contractVersion}`);
@@ -488,6 +502,9 @@ export class WorldExecutionAlgorithmRegistry {
 
   register(manifest: AlgorithmManifest, factory: WorldExecutionAlgorithmFactory): void {
     validateExecutionProducerManifest(manifest);
+    if (Object.keys(manifest.children).length > 0) {
+      throw new Error("register supports only leaf world-execution algorithms; use typed child definitions for a Composition");
+    }
     this.registerDefinition({
       role: "world-execution",
       id: manifest.id,
