@@ -2,9 +2,11 @@ import type {
   ActionCompilationReferenceDataset,
   CandidateRetriever,
   CandidateRetrieverInput,
-} from "../stabilized-behavior";
-import type { LocalEncoderRuntime } from "../../../algorithms/eager-reference/candidate-retrieval/local-encoder";
-import type { PassageEmbeddingEncoder } from "../../../algorithms/eager-reference/candidate-retrieval/embedding-cache";
+} from "../../../benchmarks/action-compilation/stabilized-behavior";
+import type { LocalEncoderRuntime } from "./local-encoder";
+import type { PassageEmbeddingEncoder } from "./embedding-cache";
+import { CachedQueryEncoder } from "./local-encoder";
+import type { ActionCompilationRetrievalRuntimeOptions, SlotRetrievalResult } from "./runtime";
 
 export const ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION = 1 as const;
 
@@ -744,20 +746,14 @@ async function prepareEncoderData(
   }
 }
 
-function retrieve(
+function scoreCandidates(
   strategy: GraphAwareStrategy,
   input: CandidateRetrieverInput,
   index: GraphIndex,
   encoderData: PreparedEncoderData | undefined,
-  options: Required<Pick<GraphAwareRetrieverOptions, "budgetRatio" | "maxPathDepth">> & Pick<GraphAwareRetrieverOptions, "ranker">,
-): string[] {
+  options: Required<Pick<GraphAwareRetrieverOptions, "maxPathDepth">> & Pick<GraphAwareRetrieverOptions, "ranker">,
+): { candidates: readonly Candidate[]; anchors: ReadonlySet<string>; scores: ReadonlyMap<string, number> } {
   const candidates = index.candidates.filter((candidate) => visible(candidate, input.slotIndex) && typed(candidate));
-  const visibleCount = index.candidates.filter((candidate) => visible(candidate, input.slotIndex)).length;
-  const requestedBudget = Math.floor(visibleCount * options.budgetRatio);
-  // The experiment gate is strict (< 0.20), so an exactly divisible catalog
-  // must leave one slot unused. This is still within the floor(20%) budget and
-  // avoids an otherwise unavoidable p95 boundary failure.
-  const budget = Math.min(requestedBudget, Math.max(0, Math.ceil(visibleCount * options.budgetRatio) - 1));
   const { keys: anchors, roles } = anchorKeys(input, index);
   const pathEvidence = graphPaths(index, input, anchors, roles, strategy === "graph-one-hop" ? 1 : options.maxPathDepth);
   const aliasTerms = aliases(input, index, anchors);
@@ -796,7 +792,86 @@ function retrieve(
     };
     scores.set(candidate.candidateKey, scoreFeatures(features, strategy, options.ranker));
   }
-  return selectBudgeted(candidates, anchors, scores, budget);
+  return { candidates, anchors, scores };
+}
+
+function retrieve(
+  strategy: GraphAwareStrategy,
+  input: CandidateRetrieverInput,
+  index: GraphIndex,
+  encoderData: PreparedEncoderData | undefined,
+  options: Required<Pick<GraphAwareRetrieverOptions, "budgetRatio" | "maxPathDepth">> & Pick<GraphAwareRetrieverOptions, "ranker">,
+): string[] {
+  const visibleCount = index.candidates.filter((candidate) => visible(candidate, input.slotIndex)).length;
+  const requestedBudget = Math.floor(visibleCount * options.budgetRatio);
+  // The experiment gate is strict (< 0.20), so an exactly divisible catalog
+  // must leave one slot unused. This is still within the floor(20%) budget and
+  // avoids an otherwise unavoidable p95 boundary failure.
+  const budget = Math.min(requestedBudget, Math.max(0, Math.ceil(visibleCount * options.budgetRatio) - 1));
+  const scored = scoreCandidates(strategy, input, index, encoderData, options);
+  return selectBudgeted(scored.candidates, scored.anchors, scored.scores, budget);
+}
+
+export interface RuntimeGraphSlotRetrieverOptions {
+  strategy: GraphAwareStrategy;
+  encoder: LocalEncoderRuntime;
+  passageEncoder: PassageEmbeddingEncoder;
+  queryEncoder?: CachedQueryEncoder;
+  maxPathDepth?: number;
+  ranker?: GraphRankerModel;
+}
+
+/** Build the production slot scorer. Candidate passages must already be in
+ * the persistent cache; only the current dynamic slot query may be encoded. */
+export function createRuntimeGraphSlotRetriever(
+  options: RuntimeGraphSlotRetrieverOptions,
+): ActionCompilationRetrievalRuntimeOptions["retrieveSlot"] {
+  if (options.passageEncoder.encoder.modelHash !== options.encoder.modelHash) {
+    throw new Error("passage cache encoder does not match the graph encoder");
+  }
+  const maxPathDepth = options.maxPathDepth ?? 3;
+  if (!Number.isSafeInteger(maxPathDepth) || maxPathDepth < 1 || maxPathDepth > 4) {
+    throw new Error("maxPathDepth must be an integer from 1 to 4");
+  }
+  const queryEncoder = options.queryEncoder ?? new CachedQueryEncoder(options.encoder);
+  return async ({ worldContentHash, context, slotIndex, signal }): Promise<SlotRetrievalResult> => {
+    if (signal?.aborted) throw signal.reason ?? new Error("candidate retrieval aborted");
+    const index = buildCatalogIndex(context);
+    const entries = actionCompilationPassageEntriesForContext(context);
+    const readStartedAt = performance.now();
+    const cached = await options.passageEncoder.encodePassages({
+      worldContentHash,
+      passages: entries.map((entry) => entry.passage),
+      allowWrite: false,
+    });
+    const readMs = Math.max(0, performance.now() - readStartedAt);
+    const vectors = new Map(entries.map((entry, position) => [entry.candidateKey, cached.vectors[position] ?? []]));
+    const query = queryText({ context, slotIndex });
+    const queryStartedAt = performance.now();
+    const encodedQuery = await queryEncoder.encode(query);
+    const queryEncodeMs = Math.max(0, performance.now() - queryStartedAt);
+    const encoderData: PreparedEncoderData = {
+      candidateVectors: new Map([[index.hash, vectors]]),
+      queryVectors: new Map([[query, encodedQuery.vector]]),
+    };
+    const scored = scoreCandidates(options.strategy, { context, slotIndex }, index, encoderData, {
+      maxPathDepth,
+      ranker: options.ranker,
+    });
+    return {
+      candidates: scored.candidates.map((candidate) => ({
+        candidateKey: candidate.candidateKey,
+        score: scored.scores.get(candidate.candidateKey) ?? 0,
+      })).sort((left, right) => right.score - left.score || left.candidateKey.localeCompare(right.candidateKey)),
+      cache: {
+        passageHits: cached.hits,
+        passageMisses: cached.misses,
+        queryHit: encodedQuery.cacheHit,
+        readMs,
+        queryEncodeMs,
+      },
+    };
+  };
 }
 
 /** Return deterministic graph/lexical feature rows for a slot. Encoder scores

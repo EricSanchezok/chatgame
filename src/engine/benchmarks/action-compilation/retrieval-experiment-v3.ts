@@ -10,7 +10,7 @@ import {
   type RetrievalExperimentPolicy,
   type RetrievalExperimentReport,
 } from "./retrieval-experiment";
-import { diagnoseGraphMissingKeys, type GraphMissingPathDiagnostic } from "./retrievers/graph-aware";
+import { diagnoseGraphMissingKeys, type GraphMissingPathDiagnostic } from "../../algorithms/eager-reference/candidate-retrieval/graph-aware";
 
 export const ACTION_COMPILATION_RETRIEVAL_V3_SCHEMA_VERSION = 3 as const;
 

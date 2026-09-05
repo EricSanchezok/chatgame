@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   extractGraphCandidateFeatureRows,
   graphFeatureVector,
-} from "../../src/engine/benchmarks/action-compilation/retrievers/graph-aware";
+} from "../../src/engine/algorithms/eager-reference/candidate-retrieval/graph-aware";
 import { loadActionCompilationReferenceDataset } from "../../src/engine/benchmarks/action-compilation/stabilized-behavior";
 import { trainPairwiseLinearRanker, rankerFeatureSchemaHash } from "../../src/engine/benchmarks/action-compilation/training/linear-ranker";
 

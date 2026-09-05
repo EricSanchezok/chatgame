@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { GRAPH_FEATURE_NAMES, graphFeatureVector, type GraphRankerModel, type CandidateFeatures } from "../retrievers/graph-aware";
+import { GRAPH_FEATURE_NAMES, graphFeatureVector, type GraphRankerModel, type CandidateFeatures } from "../../../algorithms/eager-reference/candidate-retrieval/graph-aware";
 
 export const LINEAR_RANKER_SCHEMA_VERSION = 1 as const;
 

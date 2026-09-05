@@ -3,7 +3,7 @@ import type { ActionCompilationReferenceDataset } from "../stabilized-behavior";
 import {
   clearGraphAwareRetrieverCaches,
   createGraphAwareActionCompilationRetriever,
-} from "./graph-aware";
+} from "../../../algorithms/eager-reference/candidate-retrieval/graph-aware";
 
 function fixture(): ActionCompilationReferenceDataset {
   const candidates = [

@@ -3,6 +3,7 @@ import {
   normalizeActionCompilationContextCauses,
   materializeActionCompilationCandidateKeys,
   preprocessActionCompilationSymbols,
+  validateActionCompilationShortlistMembership,
 } from "../action-compilation-validation";
 import { createActionCompilationReferenceResolver, createReferenceResolver, referenceHandleFor } from "../../../contracts/model-context";
 
@@ -136,5 +137,35 @@ describe("Action Compilation structural normalization", () => {
 
     expect(result.value).toMatchObject({ slots: [{ temporalPlan: { profileRef: expect.stringContaining("candidste_") } }] });
     expect(result.symbolRepairs[0]).toMatchObject({ status: "unmatched", reason: "protected symbol prefix is invalid" });
+  });
+
+  it("limits symbol repair and materialization to the current slot shortlist", () => {
+    const shared = createReferenceResolver([
+      { kind: "temporal_profile", engineId: "brief", label: "Brief", meaning: "fixed", allowedUses: ["profile"] },
+      { kind: "temporal_profile", engineId: "long", label: "Long", meaning: "fixed", allowedUses: ["profile"] },
+    ]);
+    const resolver = createActionCompilationReferenceResolver(shared);
+    const [allowed, excluded] = resolver.catalog.candidates.map((candidate) => candidate.candidateKey);
+    const malformedExcluded = excluded!.slice(0, -1);
+    const result = preprocessActionCompilationSymbols({
+      resolver,
+      allowedCandidateKeysBySlot: new Map([[0, [allowed!]]]),
+      value: { slots: [{ temporalPlan: { profileRef: malformedExcluded } }] },
+    });
+    expect(result.value).toMatchObject({ slots: [{ temporalPlan: { profileRef: malformedExcluded } }] });
+    expect(result.symbolRepairs[0]?.correctedValue).not.toBe(excluded);
+
+    try {
+      validateActionCompilationShortlistMembership({
+        value: { temporalPlan: { profileRef: excluded } },
+        slot: 0,
+        allowedCandidateKeys: [allowed!],
+      });
+      throw new Error("expected shortlist validation to fail");
+    } catch (error) {
+      expect(error).toMatchObject({
+        issues: [expect.objectContaining({ code: "reference.out_of_shortlist", originalValue: excluded })],
+      });
+    }
   });
 });

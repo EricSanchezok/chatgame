@@ -36,6 +36,7 @@ function setPath(root: unknown, path: readonly (string | number)[], value: strin
 export function preprocessActionCompilationSymbols(input: {
   value: unknown;
   resolver: ActionCompilationReferenceResolver;
+  allowedCandidateKeysBySlot?: ReadonlyMap<number, readonly string[]>;
 }): { value: unknown; symbolRepairs: ModelSymbolRepairAudit[] } {
   const value = structuredClone(input.value);
   const symbolRepairs: ModelSymbolRepairAudit[] = [];
@@ -52,6 +53,7 @@ export function preprocessActionCompilationSymbols(input: {
     if (typeof raw !== "string") return;
     const candidates = input.resolver.candidatesFor(contract.use)
       .filter((candidate) => candidate.scope.kind === "shared" || candidate.scope.slot === slot)
+      .filter((candidate) => !input.allowedCandidateKeysBySlot || input.allowedCandidateKeysBySlot.get(slot)?.includes(candidate.candidateKey))
       .filter((candidate) => contract.kinds.includes(candidate.kind))
       .map((candidate) => ({
         value: candidate.candidateKey,
@@ -262,6 +264,38 @@ export class ActionCompilationValidationError extends Error {
     super(`action compilation contains ${issues.length} field-level reference issue(s)`);
     this.name = "ActionCompilationValidationError";
   }
+}
+
+export function validateActionCompilationShortlistMembership(input: {
+  value: unknown;
+  slot: number;
+  allowedCandidateKeys: readonly string[];
+}): void {
+  const allowed = new Set(input.allowedCandidateKeys);
+  const issues: ModelRepairIssue[] = [];
+  const visit = (value: unknown, path: Array<string | number>): void => {
+    if (typeof value === "string") {
+      if (/^candidate_[0-9a-f]+$/u.test(value) && !allowed.has(value)) {
+        issues.push({
+          code: "reference.out_of_shortlist",
+          class: "reference",
+          path,
+          originalValue: value,
+          allowedHandles: [...allowed].sort(),
+          reason: `Slot ${input.slot} may reference only candidate keys present in its model-facing shortlist.`,
+        });
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => visit(entry, [...path, index]));
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) visit(entry, [...path, key]);
+  };
+  visit(input.value, []);
+  if (issues.length > 0) throw new ActionCompilationValidationError(issues);
 }
 
 /** Convert the model-only candidateKey vocabulary into engine-owned handles.

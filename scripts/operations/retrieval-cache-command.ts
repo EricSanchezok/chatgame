@@ -15,7 +15,7 @@ import {
 import {
   ACTION_COMPILATION_PASSAGE_SCHEMA_VERSION,
   actionCompilationPassageEntriesForContext,
-} from "../../src/engine/benchmarks/action-compilation/retrievers/graph-aware";
+} from "../../src/engine/algorithms/eager-reference/candidate-retrieval/graph-aware";
 import { loadActionCompilationReferenceDataset } from "../../src/engine/benchmarks/action-compilation/stabilized-behavior";
 import { createActionCompilationReferenceResolver } from "../../src/engine/contracts/model-context";
 import type { AgentActionProposal, SimulationState } from "../../src/engine/contracts/model";

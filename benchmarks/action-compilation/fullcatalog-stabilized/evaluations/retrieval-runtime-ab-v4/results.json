@@ -1,0 +1,2146 @@
+{
+  "schemaVersion": 4,
+  "kind": "action-compilation-retrieval-experiment-v4",
+  "datasetId": "action-compilation/fullcatalog-stabilized",
+  "datasetVersion": 1,
+  "offline": {
+    "llmRequests": 0,
+    "networkRequests": 0,
+    "worldMutations": 0
+  },
+  "encoder": {
+    "modelId": "intfloat/multilingual-e5-small",
+    "modelHash": "sha256:d36818af59d24cf4293a78d41f2194a215157aefcfccb4c650902c851a0a0b2c",
+    "encoderFingerprint": "sha256:083383dc5cdaa20d015b8fc99ba123b8a029fc8e2d4175e3042bee4b28a9fb64",
+    "dimensions": 384,
+    "libraryVersion": "4.2.0",
+    "libraryHash": "sha256:a81fccdba3baa7cf2e751322409d7e35100cb055d4299a654a1891ff579738ae"
+  },
+  "runs": [
+    {
+      "schemaVersion": 4,
+      "algorithm": "A0-full-catalog",
+      "cases": 46,
+      "batches": 24,
+      "requiredKeys": 609,
+      "recalledKeys": 609,
+      "microRecall": 1,
+      "macroRecall": 1,
+      "averageBatchCompression": 0,
+      "p95BatchShortlistRatio": 1,
+      "invalidKeys": 0,
+      "privateKeys": 0,
+      "outOfShortlistAccepted": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "caseResults": [
+        {
+          "caseId": "ac-c3-v1-000001",
+          "contextHash": "0e20787db8b0e71908002b0ee8a5a0f66c7467c1a9b07357b5ae0bd04f4b468a",
+          "slotIndex": 0,
+          "requiredCount": 16,
+          "recalledCount": 16,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000002",
+          "contextHash": "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a",
+          "slotIndex": 0,
+          "requiredCount": 6,
+          "recalledCount": 6,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000003",
+          "contextHash": "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a",
+          "slotIndex": 1,
+          "requiredCount": 10,
+          "recalledCount": 10,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000004",
+          "contextHash": "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6",
+          "slotIndex": 0,
+          "requiredCount": 20,
+          "recalledCount": 20,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1793
+        },
+        {
+          "caseId": "ac-c3-v1-000005",
+          "contextHash": "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6",
+          "slotIndex": 1,
+          "requiredCount": 21,
+          "recalledCount": 21,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1793
+        },
+        {
+          "caseId": "ac-c3-v1-000006",
+          "contextHash": "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd",
+          "slotIndex": 0,
+          "requiredCount": 4,
+          "recalledCount": 4,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000007",
+          "contextHash": "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd",
+          "slotIndex": 1,
+          "requiredCount": 3,
+          "recalledCount": 3,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000008",
+          "contextHash": "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2",
+          "slotIndex": 0,
+          "requiredCount": 11,
+          "recalledCount": 11,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000009",
+          "contextHash": "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2",
+          "slotIndex": 1,
+          "requiredCount": 14,
+          "recalledCount": 14,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000010",
+          "contextHash": "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330",
+          "slotIndex": 0,
+          "requiredCount": 16,
+          "recalledCount": 16,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1792
+        },
+        {
+          "caseId": "ac-c3-v1-000011",
+          "contextHash": "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330",
+          "slotIndex": 1,
+          "requiredCount": 16,
+          "recalledCount": 16,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1792
+        },
+        {
+          "caseId": "ac-c3-v1-000012",
+          "contextHash": "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320",
+          "slotIndex": 0,
+          "requiredCount": 18,
+          "recalledCount": 18,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000013",
+          "contextHash": "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320",
+          "slotIndex": 1,
+          "requiredCount": 17,
+          "recalledCount": 17,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000014",
+          "contextHash": "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d",
+          "slotIndex": 0,
+          "requiredCount": 16,
+          "recalledCount": 16,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000015",
+          "contextHash": "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d",
+          "slotIndex": 1,
+          "requiredCount": 21,
+          "recalledCount": 21,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000016",
+          "contextHash": "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0",
+          "slotIndex": 0,
+          "requiredCount": 6,
+          "recalledCount": 6,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000017",
+          "contextHash": "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0",
+          "slotIndex": 1,
+          "requiredCount": 9,
+          "recalledCount": 9,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000018",
+          "contextHash": "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4",
+          "slotIndex": 0,
+          "requiredCount": 8,
+          "recalledCount": 8,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1793
+        },
+        {
+          "caseId": "ac-c3-v1-000019",
+          "contextHash": "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4",
+          "slotIndex": 1,
+          "requiredCount": 9,
+          "recalledCount": 9,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1793
+        },
+        {
+          "caseId": "ac-c3-v1-000020",
+          "contextHash": "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502",
+          "slotIndex": 0,
+          "requiredCount": 22,
+          "recalledCount": 22,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000021",
+          "contextHash": "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502",
+          "slotIndex": 1,
+          "requiredCount": 20,
+          "recalledCount": 20,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000022",
+          "contextHash": "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8",
+          "slotIndex": 0,
+          "requiredCount": 20,
+          "recalledCount": 20,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000023",
+          "contextHash": "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8",
+          "slotIndex": 1,
+          "requiredCount": 15,
+          "recalledCount": 15,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000024",
+          "contextHash": "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a",
+          "slotIndex": 0,
+          "requiredCount": 5,
+          "recalledCount": 5,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000025",
+          "contextHash": "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a",
+          "slotIndex": 1,
+          "requiredCount": 8,
+          "recalledCount": 8,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000026",
+          "contextHash": "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5",
+          "slotIndex": 0,
+          "requiredCount": 5,
+          "recalledCount": 5,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000027",
+          "contextHash": "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5",
+          "slotIndex": 1,
+          "requiredCount": 6,
+          "recalledCount": 6,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000028",
+          "contextHash": "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5",
+          "slotIndex": 0,
+          "requiredCount": 3,
+          "recalledCount": 3,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000029",
+          "contextHash": "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5",
+          "slotIndex": 1,
+          "requiredCount": 5,
+          "recalledCount": 5,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000030",
+          "contextHash": "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7",
+          "slotIndex": 0,
+          "requiredCount": 8,
+          "recalledCount": 8,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1792
+        },
+        {
+          "caseId": "ac-c3-v1-000031",
+          "contextHash": "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7",
+          "slotIndex": 1,
+          "requiredCount": 7,
+          "recalledCount": 7,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1792
+        },
+        {
+          "caseId": "ac-c3-v1-000032",
+          "contextHash": "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a",
+          "slotIndex": 0,
+          "requiredCount": 19,
+          "recalledCount": 19,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000033",
+          "contextHash": "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a",
+          "slotIndex": 1,
+          "requiredCount": 29,
+          "recalledCount": 29,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000034",
+          "contextHash": "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27",
+          "slotIndex": 0,
+          "requiredCount": 13,
+          "recalledCount": 13,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000035",
+          "contextHash": "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27",
+          "slotIndex": 1,
+          "requiredCount": 28,
+          "recalledCount": 28,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1790
+        },
+        {
+          "caseId": "ac-c3-v1-000036",
+          "contextHash": "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32",
+          "slotIndex": 0,
+          "requiredCount": 16,
+          "recalledCount": 16,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000037",
+          "contextHash": "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32",
+          "slotIndex": 1,
+          "requiredCount": 15,
+          "recalledCount": 15,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        },
+        {
+          "caseId": "ac-c3-v1-000038",
+          "contextHash": "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957",
+          "slotIndex": 0,
+          "requiredCount": 21,
+          "recalledCount": 21,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1792
+        },
+        {
+          "caseId": "ac-c3-v1-000039",
+          "contextHash": "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957",
+          "slotIndex": 1,
+          "requiredCount": 20,
+          "recalledCount": 20,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1792
+        },
+        {
+          "caseId": "ac-c3-v1-000040",
+          "contextHash": "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709",
+          "slotIndex": 0,
+          "requiredCount": 9,
+          "recalledCount": 9,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000041",
+          "contextHash": "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709",
+          "slotIndex": 1,
+          "requiredCount": 8,
+          "recalledCount": 8,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000042",
+          "contextHash": "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca",
+          "slotIndex": 0,
+          "requiredCount": 8,
+          "recalledCount": 8,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000043",
+          "contextHash": "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca",
+          "slotIndex": 1,
+          "requiredCount": 15,
+          "recalledCount": 15,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1791
+        },
+        {
+          "caseId": "ac-c3-v1-000044",
+          "contextHash": "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30",
+          "slotIndex": 0,
+          "requiredCount": 11,
+          "recalledCount": 11,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1792
+        },
+        {
+          "caseId": "ac-c3-v1-000045",
+          "contextHash": "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30",
+          "slotIndex": 1,
+          "requiredCount": 10,
+          "recalledCount": 10,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1792
+        },
+        {
+          "caseId": "ac-c3-v1-000046",
+          "contextHash": "ef7a0a84b5b6be44e097fb8a25b3ff742dba73fcb50aaa36ba1f06efa96e4bdb",
+          "slotIndex": 1,
+          "requiredCount": 22,
+          "recalledCount": 22,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 1789
+        }
+      ],
+      "batchResults": [
+        {
+          "contextHash": "0e20787db8b0e71908002b0ee8a5a0f66c7467c1a9b07357b5ae0bd04f4b468a",
+          "slots": [
+            0
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 1789,
+          "returnedCount": 1789,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 1789,
+          "returnedCount": 1789,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1793,
+          "batchBudget": 1793,
+          "returnedCount": 1793,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 1791,
+          "returnedCount": 1791,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 1789,
+          "returnedCount": 1789,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1792,
+          "batchBudget": 1792,
+          "returnedCount": 1792,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 1789,
+          "returnedCount": 1789,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 1791,
+          "returnedCount": 1791,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 1790,
+          "returnedCount": 1790,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1793,
+          "batchBudget": 1793,
+          "returnedCount": 1793,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 1789,
+          "returnedCount": 1789,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 1790,
+          "returnedCount": 1790,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 1791,
+          "returnedCount": 1791,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 1790,
+          "returnedCount": 1790,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 1789,
+          "returnedCount": 1789,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1792,
+          "batchBudget": 1792,
+          "returnedCount": 1792,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 1790,
+          "returnedCount": 1790,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 1790,
+          "returnedCount": 1790,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 1789,
+          "returnedCount": 1789,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1792,
+          "batchBudget": 1792,
+          "returnedCount": 1792,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 1791,
+          "returnedCount": 1791,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 1791,
+          "returnedCount": 1791,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1792,
+          "batchBudget": 1792,
+          "returnedCount": 1792,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        },
+        {
+          "contextHash": "ef7a0a84b5b6be44e097fb8a25b3ff742dba73fcb50aaa36ba1f06efa96e4bdb",
+          "slots": [
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 1789,
+          "returnedCount": 1789,
+          "shortlistRatio": 1,
+          "compression": 0,
+          "shortlistHash": "fullcatalog",
+          "cache": {
+            "passageHits": 0,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 0,
+            "readMs": 0,
+            "queryEncodeMs": 0
+          }
+        }
+      ]
+    },
+    {
+      "schemaVersion": 4,
+      "algorithm": "H2-runtime-joint-budget",
+      "cases": 46,
+      "batches": 24,
+      "requiredKeys": 609,
+      "recalledKeys": 486,
+      "microRecall": 0.7980295566502463,
+      "macroRecall": 0.8222458420889197,
+      "averageBatchCompression": 0.8003537994773703,
+      "p95BatchShortlistRatio": 0.19988833054159688,
+      "invalidKeys": 0,
+      "privateKeys": 0,
+      "outOfShortlistAccepted": 0,
+      "budgetExceededCases": 0,
+      "deterministic": true,
+      "hardGate": false,
+      "caseResults": [
+        {
+          "caseId": "ac-c3-v1-000001",
+          "contextHash": "0e20787db8b0e71908002b0ee8a5a0f66c7467c1a9b07357b5ae0bd04f4b468a",
+          "slotIndex": 0,
+          "requiredCount": 16,
+          "recalledCount": 15,
+          "recall": 0.9375,
+          "missingKeys": [
+            "candidate_7ea3f2b04ff1"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000002",
+          "contextHash": "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a",
+          "slotIndex": 0,
+          "requiredCount": 6,
+          "recalledCount": 4,
+          "recall": 0.6666666666666666,
+          "missingKeys": [
+            "candidate_62b4f383f331",
+            "candidate_ea4dac7c11a4"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000003",
+          "contextHash": "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a",
+          "slotIndex": 1,
+          "requiredCount": 10,
+          "recalledCount": 10,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000004",
+          "contextHash": "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6",
+          "slotIndex": 0,
+          "requiredCount": 20,
+          "recalledCount": 20,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000005",
+          "contextHash": "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6",
+          "slotIndex": 1,
+          "requiredCount": 21,
+          "recalledCount": 21,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000006",
+          "contextHash": "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd",
+          "slotIndex": 0,
+          "requiredCount": 4,
+          "recalledCount": 4,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000007",
+          "contextHash": "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd",
+          "slotIndex": 1,
+          "requiredCount": 3,
+          "recalledCount": 3,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000008",
+          "contextHash": "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2",
+          "slotIndex": 0,
+          "requiredCount": 11,
+          "recalledCount": 5,
+          "recall": 0.45454545454545453,
+          "missingKeys": [
+            "candidate_0001980c5ba6",
+            "candidate_07bf39d09de7",
+            "candidate_0924fa6b769c",
+            "candidate_0bda465d35b4",
+            "candidate_44c19fe26524",
+            "candidate_a5de3d0e7431"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000009",
+          "contextHash": "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2",
+          "slotIndex": 1,
+          "requiredCount": 14,
+          "recalledCount": 8,
+          "recall": 0.5714285714285714,
+          "missingKeys": [
+            "candidate_1d3002df5ea2",
+            "candidate_2a9f04d18587",
+            "candidate_4242ee829a42",
+            "candidate_4793a6643549",
+            "candidate_4c464a1428f0",
+            "candidate_d1bd13b090c7"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000010",
+          "contextHash": "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330",
+          "slotIndex": 0,
+          "requiredCount": 16,
+          "recalledCount": 9,
+          "recall": 0.5625,
+          "missingKeys": [
+            "candidate_1ca1b73756eb",
+            "candidate_5eceed0f5bf9",
+            "candidate_9f989ea2ad1c",
+            "candidate_b61e31932cbe",
+            "candidate_c0d904966f38",
+            "candidate_d70c1d7290ff",
+            "candidate_f68305475a2d"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000011",
+          "contextHash": "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330",
+          "slotIndex": 1,
+          "requiredCount": 16,
+          "recalledCount": 14,
+          "recall": 0.875,
+          "missingKeys": [
+            "candidate_4a97f238fca8",
+            "candidate_5b43b2e05175"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000012",
+          "contextHash": "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320",
+          "slotIndex": 0,
+          "requiredCount": 18,
+          "recalledCount": 13,
+          "recall": 0.7222222222222222,
+          "missingKeys": [
+            "candidate_23fb993af3fd",
+            "candidate_81459f4a8c2d",
+            "candidate_c1361d4ee2c8",
+            "candidate_c7963bc13fc7",
+            "candidate_cac1ac5cd28c"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000013",
+          "contextHash": "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320",
+          "slotIndex": 1,
+          "requiredCount": 17,
+          "recalledCount": 14,
+          "recall": 0.8235294117647058,
+          "missingKeys": [
+            "candidate_00c2388a6d61",
+            "candidate_c6f804b30626",
+            "candidate_f9b65040e0a5"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000014",
+          "contextHash": "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d",
+          "slotIndex": 0,
+          "requiredCount": 16,
+          "recalledCount": 4,
+          "recall": 0.25,
+          "missingKeys": [
+            "candidate_0a9d50c6035f",
+            "candidate_2063417e1f0b",
+            "candidate_2595e90392d9",
+            "candidate_3cf754c26ccf",
+            "candidate_60e83ffb18ca",
+            "candidate_6795514331ce",
+            "candidate_a2776db91b41",
+            "candidate_bfb13fa30f60",
+            "candidate_cac1ac5cd28c",
+            "candidate_cf54b01b1c9a",
+            "candidate_d707ceaab008",
+            "candidate_f1544541e196"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000015",
+          "contextHash": "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d",
+          "slotIndex": 1,
+          "requiredCount": 21,
+          "recalledCount": 16,
+          "recall": 0.7619047619047619,
+          "missingKeys": [
+            "candidate_294262b687e1",
+            "candidate_4e45f8e10f9e",
+            "candidate_5e78cc64a70c",
+            "candidate_ab86067106a0",
+            "candidate_e8e6d6ed6db2"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000016",
+          "contextHash": "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0",
+          "slotIndex": 0,
+          "requiredCount": 6,
+          "recalledCount": 5,
+          "recall": 0.8333333333333334,
+          "missingKeys": [
+            "candidate_a0fad1b458de"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000017",
+          "contextHash": "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0",
+          "slotIndex": 1,
+          "requiredCount": 9,
+          "recalledCount": 4,
+          "recall": 0.4444444444444444,
+          "missingKeys": [
+            "candidate_6c1468107b8f",
+            "candidate_7babebc0c0ed",
+            "candidate_8c4754c280c4",
+            "candidate_a0fad1b458de",
+            "candidate_ac16f2c42231"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000018",
+          "contextHash": "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4",
+          "slotIndex": 0,
+          "requiredCount": 8,
+          "recalledCount": 7,
+          "recall": 0.875,
+          "missingKeys": [
+            "candidate_04f501922cf4"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000019",
+          "contextHash": "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4",
+          "slotIndex": 1,
+          "requiredCount": 9,
+          "recalledCount": 9,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000020",
+          "contextHash": "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502",
+          "slotIndex": 0,
+          "requiredCount": 22,
+          "recalledCount": 15,
+          "recall": 0.6818181818181818,
+          "missingKeys": [
+            "candidate_045c91ce5656",
+            "candidate_19956207983a",
+            "candidate_3fec09fc263d",
+            "candidate_4a97f238fca8",
+            "candidate_5b59d1ce2cc9",
+            "candidate_6b5d8283e6c0",
+            "candidate_cf72d1ea85f7"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000021",
+          "contextHash": "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502",
+          "slotIndex": 1,
+          "requiredCount": 20,
+          "recalledCount": 9,
+          "recall": 0.45,
+          "missingKeys": [
+            "candidate_05a732956112",
+            "candidate_0be64a9d045e",
+            "candidate_0e1edb0ef68f",
+            "candidate_1f3cf4c24765",
+            "candidate_57e1365a8b73",
+            "candidate_57ec1b863486",
+            "candidate_8197a875a456",
+            "candidate_b4c20c74bea2",
+            "candidate_c6228c607f45",
+            "candidate_d31dbb01365e",
+            "candidate_fc0b70dbd65c"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000022",
+          "contextHash": "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8",
+          "slotIndex": 0,
+          "requiredCount": 20,
+          "recalledCount": 16,
+          "recall": 0.8,
+          "missingKeys": [
+            "candidate_1204f5686242",
+            "candidate_24c4b4568c07",
+            "candidate_4242ee829a42",
+            "candidate_4793a6643549"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000023",
+          "contextHash": "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8",
+          "slotIndex": 1,
+          "requiredCount": 15,
+          "recalledCount": 12,
+          "recall": 0.8,
+          "missingKeys": [
+            "candidate_0efd9710d26e",
+            "candidate_ac5a9888dfe7",
+            "candidate_c6f804b30626"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000024",
+          "contextHash": "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a",
+          "slotIndex": 0,
+          "requiredCount": 5,
+          "recalledCount": 5,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000025",
+          "contextHash": "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a",
+          "slotIndex": 1,
+          "requiredCount": 8,
+          "recalledCount": 7,
+          "recall": 0.875,
+          "missingKeys": [
+            "candidate_60e83ffb18ca"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000026",
+          "contextHash": "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5",
+          "slotIndex": 0,
+          "requiredCount": 5,
+          "recalledCount": 5,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000027",
+          "contextHash": "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5",
+          "slotIndex": 1,
+          "requiredCount": 6,
+          "recalledCount": 6,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000028",
+          "contextHash": "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5",
+          "slotIndex": 0,
+          "requiredCount": 3,
+          "recalledCount": 3,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000029",
+          "contextHash": "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5",
+          "slotIndex": 1,
+          "requiredCount": 5,
+          "recalledCount": 5,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000030",
+          "contextHash": "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7",
+          "slotIndex": 0,
+          "requiredCount": 8,
+          "recalledCount": 7,
+          "recall": 0.875,
+          "missingKeys": [
+            "candidate_33ec6e862532"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000031",
+          "contextHash": "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7",
+          "slotIndex": 1,
+          "requiredCount": 7,
+          "recalledCount": 7,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000032",
+          "contextHash": "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a",
+          "slotIndex": 0,
+          "requiredCount": 19,
+          "recalledCount": 18,
+          "recall": 0.9473684210526315,
+          "missingKeys": [
+            "candidate_d6bb10c24752"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000033",
+          "contextHash": "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a",
+          "slotIndex": 1,
+          "requiredCount": 29,
+          "recalledCount": 28,
+          "recall": 0.9655172413793104,
+          "missingKeys": [
+            "candidate_eca2f6915647"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000034",
+          "contextHash": "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27",
+          "slotIndex": 0,
+          "requiredCount": 13,
+          "recalledCount": 12,
+          "recall": 0.9230769230769231,
+          "missingKeys": [
+            "candidate_daf075d816c6"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000035",
+          "contextHash": "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27",
+          "slotIndex": 1,
+          "requiredCount": 28,
+          "recalledCount": 23,
+          "recall": 0.8214285714285714,
+          "missingKeys": [
+            "candidate_44576ad92c8d",
+            "candidate_a250f73e26d5",
+            "candidate_b43bfbd8b8b4",
+            "candidate_d74b8ac4f8ff",
+            "candidate_e1ff373363e6"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000036",
+          "contextHash": "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32",
+          "slotIndex": 0,
+          "requiredCount": 16,
+          "recalledCount": 16,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000037",
+          "contextHash": "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32",
+          "slotIndex": 1,
+          "requiredCount": 15,
+          "recalledCount": 14,
+          "recall": 0.9333333333333333,
+          "missingKeys": [
+            "candidate_2e383db023d1"
+          ],
+          "returnedCount": 356
+        },
+        {
+          "caseId": "ac-c3-v1-000038",
+          "contextHash": "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957",
+          "slotIndex": 0,
+          "requiredCount": 21,
+          "recalledCount": 12,
+          "recall": 0.5714285714285714,
+          "missingKeys": [
+            "candidate_10264ffe4ab7",
+            "candidate_14da584670ff",
+            "candidate_60e83ffb18ca",
+            "candidate_628d2b91cc4a",
+            "candidate_7ea3f2b04ff1",
+            "candidate_8813ba401c53",
+            "candidate_a0fad1b458de",
+            "candidate_ab9e497c8ebc",
+            "candidate_f1544541e196"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000039",
+          "contextHash": "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957",
+          "slotIndex": 1,
+          "requiredCount": 20,
+          "recalledCount": 13,
+          "recall": 0.65,
+          "missingKeys": [
+            "candidate_04ee181a67fe",
+            "candidate_0f75650ccec4",
+            "candidate_6a1923ab68b3",
+            "candidate_90dd1e6c7a83",
+            "candidate_cb763b19f9f4",
+            "candidate_d34c0a5caa73",
+            "candidate_f9e10d182855"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000040",
+          "contextHash": "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709",
+          "slotIndex": 0,
+          "requiredCount": 9,
+          "recalledCount": 4,
+          "recall": 0.4444444444444444,
+          "missingKeys": [
+            "candidate_2e2c0599e5e4",
+            "candidate_2e560fa7a5e8",
+            "candidate_6afce0dd987e",
+            "candidate_86d2635ab0a5",
+            "candidate_b43bfbd8b8b4"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000041",
+          "contextHash": "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709",
+          "slotIndex": 1,
+          "requiredCount": 8,
+          "recalledCount": 6,
+          "recall": 0.75,
+          "missingKeys": [
+            "candidate_0c79b7fc591d",
+            "candidate_7ae30ce51030"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000042",
+          "contextHash": "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca",
+          "slotIndex": 0,
+          "requiredCount": 8,
+          "recalledCount": 7,
+          "recall": 0.875,
+          "missingKeys": [
+            "candidate_8ab93cd1c338"
+          ],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000043",
+          "contextHash": "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca",
+          "slotIndex": 1,
+          "requiredCount": 15,
+          "recalledCount": 15,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000044",
+          "contextHash": "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30",
+          "slotIndex": 0,
+          "requiredCount": 11,
+          "recalledCount": 11,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000045",
+          "contextHash": "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30",
+          "slotIndex": 1,
+          "requiredCount": 10,
+          "recalledCount": 10,
+          "recall": 1,
+          "missingKeys": [],
+          "returnedCount": 357
+        },
+        {
+          "caseId": "ac-c3-v1-000046",
+          "contextHash": "ef7a0a84b5b6be44e097fb8a25b3ff742dba73fcb50aaa36ba1f06efa96e4bdb",
+          "slotIndex": 1,
+          "requiredCount": 22,
+          "recalledCount": 15,
+          "recall": 0.6818181818181818,
+          "missingKeys": [
+            "candidate_107e7ee18972",
+            "candidate_40b073cd0e25",
+            "candidate_6a1923ab68b3",
+            "candidate_a0fad1b458de",
+            "candidate_af3cf5171aec",
+            "candidate_c38a38cc5a30",
+            "candidate_cd1939edb9ce"
+          ],
+          "returnedCount": 357
+        }
+      ],
+      "batchResults": [
+        {
+          "contextHash": "0e20787db8b0e71908002b0ee8a5a0f66c7467c1a9b07357b5ae0bd04f4b468a",
+          "slots": [
+            0
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.1995528228060369,
+          "compression": 0.8004471771939631,
+          "shortlistHash": "6905c0a99c508dc6b65994f8bd95a00ba9cdeb8f2dbfbf73ec5740d929292e0f",
+          "cache": {
+            "passageHits": 1774,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 1,
+            "readMs": 94.4190410000001,
+            "queryEncodeMs": 97.28691600000002
+          }
+        },
+        {
+          "contextHash": "12199d4ff16c8821c2e41247b9120a180f1185c1008a21507cd027af5f7bf71a",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.1995528228060369,
+          "compression": 0.8004471771939631,
+          "shortlistHash": "90692a0d297834dcfd865bb30fce928306e33b8a20b2b349dd19e3fd112144d6",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 65.74504200000001,
+            "queryEncodeMs": 111.17229199999974
+          }
+        },
+        {
+          "contextHash": "25c5e759de5695b33441eb96cbe99ce8f6ef2eb4788198b276eed6848b7d7ec6",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1793,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.1996653653095371,
+          "compression": 0.800334634690463,
+          "shortlistHash": "fcef4464740ea468d0e4656319db7a93f7854ec06fb2d0a744a08cde886332a6",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 62.888748999999734,
+            "queryEncodeMs": 73.5730410000001
+          }
+        },
+        {
+          "contextHash": "2e1baa88c2e3a9105c8ce26fc4d1613409ec4b29df183b8986d469485d2f11cd",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19988833054159688,
+          "compression": 0.8001116694584032,
+          "shortlistHash": "d3175c80341599365b49834dd643eca6df60c3ca074e4389a052650820ff0c87",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 60.40016699999978,
+            "queryEncodeMs": 68.69104099999959
+          }
+        },
+        {
+          "contextHash": "34d8b561ef12595d6c0300cd649ebc04e0208700a0f7eb9de4f379fb4ace8da2",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.1995528228060369,
+          "compression": 0.8004471771939631,
+          "shortlistHash": "1448d9224ef60a0212240a73803e1593553be224e8ba3b887d075e90ef56f9e8",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 63.26762400000007,
+            "queryEncodeMs": 64.89212399999997
+          }
+        },
+        {
+          "contextHash": "3b5619ae7583aa09c48500b0025cb90b14ae72dc51f9e660ee57a7d46314e330",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1792,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19977678571428573,
+          "compression": 0.8002232142857143,
+          "shortlistHash": "99266ee73436fd0f1e4068be8709ecb086cfb2a97f395b840db7f0c30320cba4",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 63.12037400000099,
+            "queryEncodeMs": 72.25045799999953
+          }
+        },
+        {
+          "contextHash": "414f25a780b275444a882a124248a207e45e9748bcedb3afc74369d75de98320",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.1995528228060369,
+          "compression": 0.8004471771939631,
+          "shortlistHash": "b84f5cdacc987c1d656b6c0e86b390b9e2da6c88f36820be1f27243f89b4a1b7",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 67.23362500000076,
+            "queryEncodeMs": 124.45212499999889
+          }
+        },
+        {
+          "contextHash": "44509706b1d06026973162e1af8e0dba88af85183310ddb582b5f92b5e07fc7d",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19988833054159688,
+          "compression": 0.8001116694584032,
+          "shortlistHash": "acf52e1606541cecd4e9944233a48bd7a6aa421956c30ca66416602f13c9ab2d",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 62.25949899999978,
+            "queryEncodeMs": 85.22216600000047
+          }
+        },
+        {
+          "contextHash": "51736b00e3513527ae620ebabb01606ee3758c825e65919ddf4b6d6e63513ea0",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.19944134078212292,
+          "compression": 0.8005586592178771,
+          "shortlistHash": "21ef2e964e5402648aa3d3ea75bbe6203078e481681ed53ee59d572862d8e2d5",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 62.82195900000079,
+            "queryEncodeMs": 59.19220899999982
+          }
+        },
+        {
+          "contextHash": "622318d73c30ae5cd4c2343dbcf6481745325ac8838df1a988d3f1fe3ee461c4",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1793,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.1996653653095371,
+          "compression": 0.800334634690463,
+          "shortlistHash": "231393ff7b2484b6d271faf77071cb47993704a9e829c31865b285bfb8e08536",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 64.58620800000062,
+            "queryEncodeMs": 68.03520899999876
+          }
+        },
+        {
+          "contextHash": "6791fc410a67e10e687bbefe0d170f7c84422858740116907678b5103b945502",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.1995528228060369,
+          "compression": 0.8004471771939631,
+          "shortlistHash": "c4bfb9ee0e4b1c66baa611213c17cc7f0137eb2a4cbe98b8ae43cd336ce312f4",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 62.557958999999755,
+            "queryEncodeMs": 66.86141700000098
+          }
+        },
+        {
+          "contextHash": "6debb790c26b058e07883f8466590ce82624ad8830812350ac0595f42241afe8",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.19944134078212292,
+          "compression": 0.8005586592178771,
+          "shortlistHash": "d57e1385c669a55c20fab40fc2811799cd17ea8086f8b8fb3ee74b3c4be45a3d",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 64.12324900000021,
+            "queryEncodeMs": 62.65166600000066
+          }
+        },
+        {
+          "contextHash": "6fcc94af586019a131e579bedc757e7fdfb299c3af35f3c87666e3296a3d4a8a",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19988833054159688,
+          "compression": 0.8001116694584032,
+          "shortlistHash": "61084712500aeec1f5fd7ad4cc5755e04d0a6827890675370c177e66b52f0ad0",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 70.7038330000014,
+            "queryEncodeMs": 106.12283299999945
+          }
+        },
+        {
+          "contextHash": "78fa5887ab4993520533512c4e977087525ae6a2b8738087efed1196dd7aada5",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.19944134078212292,
+          "compression": 0.8005586592178771,
+          "shortlistHash": "be261d189ab6e5e5f3eeb74cc916e37d2928fef5b8103b9bcc4d0ebc485a0745",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 65.08887499999946,
+            "queryEncodeMs": 103.27658300000076
+          }
+        },
+        {
+          "contextHash": "9b01c7226fb6adcd33d1e989a5dc84ae4e2850d72d0b5e6d0c097de25eabe5a5",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.1995528228060369,
+          "compression": 0.8004471771939631,
+          "shortlistHash": "a8fb9b365bc87122832df7fdb4fbd9a5f997c2eb4afbc82b1a5c59e25a43fd15",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 64.35933399999885,
+            "queryEncodeMs": 80.48754199999894
+          }
+        },
+        {
+          "contextHash": "9c594bd339b9bf953a303825ac4fc1565f9b1189d545fff25f8660d9a2af17f7",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1792,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19977678571428573,
+          "compression": 0.8002232142857143,
+          "shortlistHash": "81bf32e0810a8931e668497011888add659e9c1b07dfe066ebfdb35020abe909",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 68.12383399999999,
+            "queryEncodeMs": 98.67583399999967
+          }
+        },
+        {
+          "contextHash": "a46de3d14976714d3e78732897ad17700df3de746f4f846ae26c660f62da969a",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.19944134078212292,
+          "compression": 0.8005586592178771,
+          "shortlistHash": "35ab01d3c04e07738c649e266ca7f51dbc4b6e97456086b37f7fc1ad225876e1",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 63.727624999999534,
+            "queryEncodeMs": 68.60862500000076
+          }
+        },
+        {
+          "contextHash": "af4c9de4c200a06af13040691c2f75a5ab8a7119235ebd455f00094afe2e1b27",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1790,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.19944134078212292,
+          "compression": 0.8005586592178771,
+          "shortlistHash": "127baf5d68cda3eaf17173e9942cb9d6aac5aede4f93b65da43729fad54dcf7c",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 63.160374999999476,
+            "queryEncodeMs": 85.02679199999875
+          }
+        },
+        {
+          "contextHash": "b475ed356cb94350a12033b1b9bf2faae5237930642c6458dfa26e1b14a93c32",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.1995528228060369,
+          "compression": 0.8004471771939631,
+          "shortlistHash": "2163709c5fcca2d5b1b57afd70852f268592b263214a481cd97b280583180731",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 70.37299999999959,
+            "queryEncodeMs": 98.85495900000024
+          }
+        },
+        {
+          "contextHash": "ba8f1353aa4008fe87fcf8af83a18dc9f9f73b3a080cc30542c4bd6dfce5b957",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1792,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19977678571428573,
+          "compression": 0.8002232142857143,
+          "shortlistHash": "1ee51c7b911598fdef2fc1759b54620897ff261c519a8135be1ae9bd48cec533",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 65.91783399999986,
+            "queryEncodeMs": 100.83216700000048
+          }
+        },
+        {
+          "contextHash": "bc21cc709b0f5040d3b589baede6b06ce7e9c3ff5ee079ce57b4a0a8f7176709",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19988833054159688,
+          "compression": 0.8001116694584032,
+          "shortlistHash": "ac3967113cc1dccc6151a5583ebd706e2eac50530a1adf7ab40b9015fbfcd093",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 67.82445799999914,
+            "queryEncodeMs": 83.13958300000195
+          }
+        },
+        {
+          "contextHash": "bd702b9593293d1c8b8178e7e524bc4a3b8e899df02604ccf1b748ca353751ca",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1791,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19988833054159688,
+          "compression": 0.8001116694584032,
+          "shortlistHash": "8551f8e91dcdfc25d15671c98b38e72ee58fb4725f0d7b44bb69caecc60196ae",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 66.38108400000056,
+            "queryEncodeMs": 83.7508749999979
+          }
+        },
+        {
+          "contextHash": "c24aed81d2ea901effd680b6ca27558a5dd74cca4c087458c3de93c158cf0a30",
+          "slots": [
+            0,
+            1
+          ],
+          "fullCatalogCount": 1792,
+          "batchBudget": 358,
+          "returnedCount": 358,
+          "shortlistRatio": 0.19977678571428573,
+          "compression": 0.8002232142857143,
+          "shortlistHash": "f31b0404654cb8f57c0359ac49246501d61e9f8ca3a3654c440b31acfb1c577e",
+          "cache": {
+            "passageHits": 3548,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 2,
+            "readMs": 69.73383299999841,
+            "queryEncodeMs": 87.56287599999996
+          }
+        },
+        {
+          "contextHash": "ef7a0a84b5b6be44e097fb8a25b3ff742dba73fcb50aaa36ba1f06efa96e4bdb",
+          "slots": [
+            1
+          ],
+          "fullCatalogCount": 1789,
+          "batchBudget": 357,
+          "returnedCount": 357,
+          "shortlistRatio": 0.1995528228060369,
+          "compression": 0.8004471771939631,
+          "shortlistHash": "2e270febc4c9c52f89fa6f53b8774fb25cd98267b33f46646f3859889e0cefd9",
+          "cache": {
+            "passageHits": 1774,
+            "passageMisses": 0,
+            "queryHits": 0,
+            "queryMisses": 1,
+            "readMs": 32.72404199999983,
+            "queryEncodeMs": 87.59537499999897
+          }
+        }
+      ]
+    }
+  ],
+  "recommendation": {
+    "status": "retain-fullcatalog",
+    "runId": null
+  }
+}

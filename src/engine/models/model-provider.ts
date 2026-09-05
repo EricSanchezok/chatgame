@@ -11,7 +11,7 @@ import type { RuntimeCorrelation, RuntimeObserver } from "../runtime/observabili
 import type { ModelRegistryStatus } from "./model-registry";
 import { runtimeId } from "../runtime/runtime-id";
 import type { ExecutionStageHooks, ExecutionStagePosition } from "../runtime/stages";
-import type { CandidateRetrievalMiddleware } from "../benchmarks/action-compilation/candidate-retrieval-middleware";
+import type { ActionCompilationRetrievalRuntime } from "../algorithms/eager-reference/candidate-retrieval/runtime";
 
 export interface ModelExecutionScope {
   workloadId: string;
@@ -26,8 +26,8 @@ export interface ModelExecutionScope {
   logicalStage?: ExecutionStagePosition;
   /** Trusted local debug control; never serialized into model context. */
   stageHooks?: ExecutionStageHooks;
-  /** Optional action-compilation candidate middleware; authoritative resolution remains full-catalog. */
-  candidateRetrievalMiddleware?: CandidateRetrievalMiddleware;
+  /** Optional Action Compilation retrieval runtime; authoritative validation remains full-catalog. */
+  actionCompilationRetrieval?: ActionCompilationRetrievalRuntime;
 }
 
 export interface StructuredModelRequest<T> extends ModelExecutionScope {

@@ -69,6 +69,7 @@ import {
   normalizeActionCompilationContextCauses,
   normalizeActionCompilationDraftReferences,
   preprocessActionCompilationSymbols,
+  validateActionCompilationShortlistMembership,
   validateActionCompilationDraft,
 } from "./action-compilation-validation";
 import {
@@ -687,6 +688,7 @@ function localizedSchemaFailure(
   batch: readonly CompilationSlot[],
   state: Readonly<SimulationState>,
   resolver: ActionCompilationReferenceResolver,
+  selectedKeysBySlot?: ReadonlyMap<number, readonly string[]>,
 ): (EagerSlotAttemptResult<CompiledAction, CompilationPayload, ModelRepairIssue> & {
   contextualCauseRemovals: number;
   normalizedSlots: Array<{ slot: number; result: unknown }>;
@@ -741,6 +743,8 @@ function localizedSchemaFailure(
     }
     normalizedSlots.push({ slot: parsed.data.slot, result: parsed.data });
     try {
+      const allowed = selectedKeysBySlot?.get(index);
+      if (allowed) validateActionCompilationShortlistMembership({ value: parsed.data, slot: index, allowedCandidateKeys: allowed });
       const slotResolver = resolver.scopedToSlot(index);
       const materialized = materializeActionCompilationCandidateKeys({ value: parsed.data, resolver: slotResolver });
       accepted.push({
@@ -977,16 +981,20 @@ export async function compileActions(
       const fullBatchActionResolver = createActionCompilationReferenceResolver(fullBatchResolver, fullBatchResolver);
       const context = actionCompilationContext(state, batch, scope, fullBatchResolver);
       emitActionCompilationContextProjection(scope, owner, identity, context, lineage);
-      const retrieval = scope.candidateRetrievalMiddleware?.apply({
-        fullContext: context,
-        slotIndices: batch.map((_, slot) => slot),
-      });
+      const retrieval = scope.actionCompilationRetrieval
+        ? await scope.actionCompilationRetrieval.retrieveBatch({
+            worldContentHash: state.worldHash,
+            fullContext: context,
+            slotIndices: batch.map((_, slot) => slot),
+            signal: scope.abortSignal,
+          })
+        : undefined;
       if (scope.observer) {
         const fullContextHash = retrieval?.fullContextHash ?? contentHash(context);
         scope.observer.emit({
           event: "model.action_compilation.context.captured",
           correlation,
-          attributes: { middlewareVersion: scope.candidateRetrievalMiddleware?.version ?? "fullcatalog-control", role: "action-compilation" },
+          attributes: { middlewareVersion: scope.actionCompilationRetrieval?.version ?? "fullcatalog-control", role: "action-compilation" },
           counts: {
             selectedCandidates: retrieval?.diagnostics.selectedCount ?? context.referenceCatalog.candidates.length,
             visibleCandidates: retrieval?.diagnostics.visibleCount ?? context.referenceCatalog.candidates.length,
@@ -1049,25 +1057,29 @@ export async function compileActions(
           preprocessOutput: (raw) => preprocessActionCompilationSymbols({
             value: raw,
             resolver: batchActionResolver,
+            ...(retrieval ? { allowedCandidateKeysBySlot: retrieval.selectedKeysBySlot } : {}),
           }),
         });
         if (retrieval && scope.observer) {
-          const selected = new Set([...retrieval.selectedKeysBySlot.values()].flat());
-          const outOfShortlist = [...candidateKeysInValue(generated.value)].filter((key) => !selected.has(key)).sort();
-          if (outOfShortlist.length > 0) {
+          const outOfShortlistBySlot = generated.value.slots.flatMap((slot) => {
+            const selected = new Set(retrieval.selectedKeysBySlot.get(slot.slot) ?? []);
+            const keys = [...candidateKeysInValue(slot)].filter((key) => !selected.has(key)).sort();
+            return keys.length > 0 ? [{ slot: slot.slot, keys }] : [];
+          });
+          if (outOfShortlistBySlot.length > 0) {
             scope.observer.emit({
               event: "model.action_compilation.out_of_shortlist",
               correlation,
               level: "warn",
-              counts: { references: outOfShortlist.length },
-              payload: fullRuntimePayload(scope.observer, { outOfShortlist }),
+              counts: { references: outOfShortlistBySlot.reduce((count, item) => count + item.keys.length, 0) },
+              payload: fullRuntimePayload(scope.observer, { outOfShortlistBySlot }),
             });
           }
         }
         assertSlotCoverage(batch, generated.value.slots);
       } catch (error) {
         if (isTerminalEagerModelError(error)) throw error;
-        const localized = localizedSchemaFailure(error, batch, state, batchActionResolver);
+        const localized = localizedSchemaFailure(error, batch, state, batchActionResolver, retrieval?.selectedKeysBySlot);
         if (localized) {
           const invocationAudit = localized.audit.invocations.at(-1);
           if (invocationAudit && localized.contextualCauseRemovals > 0) {
@@ -1153,6 +1165,8 @@ export async function compileActions(
           // before domain materialization.
           const slotResolver = batchResolver.scopedToSlot(index);
           const slotActionResolver = batchActionResolver.scopedToSlot(index);
+          const allowed = retrieval?.selectedKeysBySlot.get(index);
+          if (allowed) validateActionCompilationShortlistMembership({ value: draft, slot: index, allowedCandidateKeys: allowed });
           selectionsBySlot.set(index, collectActionCompilationSelections(draft, slotActionResolver));
           const materialized = materializeActionCompilationCandidateKeys({ value: draft, resolver: slotActionResolver });
           const normalized = normalizeModelOutput(materialized.draft, { resolver: slotResolver, dedupeArrays: true });

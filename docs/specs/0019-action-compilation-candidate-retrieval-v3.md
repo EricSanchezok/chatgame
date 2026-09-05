@@ -80,5 +80,5 @@ until the pinned directory is installed; no automatic download is permitted.
 
 - [v3 retrieval experiment evaluator](../../src/engine/benchmarks/action-compilation/retrieval-experiment-v3.ts)
 - [Graph-aware retriever tests](../../src/engine/benchmarks/action-compilation/retrievers/graph-aware.test.ts)
-- [Middleware tests](../../src/engine/benchmarks/action-compilation/candidate-retrieval-middleware.test.ts)
+- [Production retrieval runtime tests](../../src/engine/algorithms/eager-reference/candidate-retrieval/runtime.test.ts)
 - [Decision 0097 — Action Compilation graph-aware candidate retrieval](../decisions/0097-action-compilation-graph-retrieval.md)

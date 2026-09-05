@@ -24,6 +24,7 @@
     "benchmark:compare:action-compilation-reference": "tsx scripts/experiments/compare-action-compilation-retrievers.ts",
     "benchmark:compare:action-compilation-retrieval-v2": "tsx scripts/experiments/compare-action-compilation-retrieval-v2.ts",
     "benchmark:compare:action-compilation-retrieval-v3": "tsx scripts/experiments/compare-action-compilation-retrieval-v3.ts",
+    "benchmark:compare:action-compilation-retrieval-v4": "tsx scripts/experiments/compare-action-compilation-retrieval-v4.ts",
     "retrieval:cache:warm": "tsx scripts/operations/retrieval-cache-command.ts warm",
     "retrieval:cache:verify": "tsx scripts/operations/retrieval-cache-command.ts verify",
     "retrieval:cache:status": "tsx scripts/operations/retrieval-cache-command.ts status",
