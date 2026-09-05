@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorldInspectorWindow } from "../../../shared/world-inspector-api";
+import { DEFAULT_ALGORITHM_REF } from "../../../engine/algorithms/registry";
 import { mergeWorldInspectorWindows } from "../world-inspector-window";
 
 function inspectorWindow(
@@ -9,7 +10,11 @@ function inspectorWindow(
   const oldestRevision = revisions[0];
   const newestRevision = revisions.at(-1);
   return {
-    apiVersion: 12,
+    apiVersion: 13,
+    algorithmComposition: {
+      root: DEFAULT_ALGORITHM_REF,
+      nodeCount: 23,
+    },
     instance: {
       id: "instance-1",
       title: "存档",

@@ -40,12 +40,21 @@ function samePagination(left: WorldInspectorWindow["pagination"], right: WorldIn
     left.oldestRevision === right.oldestRevision && left.newestRevision === right.newestRevision;
 }
 
+function sameAlgorithmComposition(
+  left: WorldInspectorWindow["algorithmComposition"],
+  right: WorldInspectorWindow["algorithmComposition"],
+): boolean {
+  return left.nodeCount === right.nodeCount && left.root.manifestHash === right.root.manifestHash;
+}
+
 export function mergeWorldInspectorWindows(
   current: WorldInspectorWindow | undefined,
   incoming: WorldInspectorWindow,
 ): WorldInspectorWindow {
   if (!current || current.instance.worldHash !== incoming.instance.worldHash) return incoming;
-  if (sameInstance(current.instance, incoming.instance) && samePagination(current.pagination, incoming.pagination) &&
+  if (sameInstance(current.instance, incoming.instance) &&
+    sameAlgorithmComposition(current.algorithmComposition, incoming.algorithmComposition) &&
+    samePagination(current.pagination, incoming.pagination) &&
     current.actors.length === incoming.actors.length && current.actors.every((actor, index) => sameActor(actor, incoming.actors[index]!)) &&
     current.steps.length === incoming.steps.length && current.steps.every((step, index) => sameStep(step, incoming.steps[index]!)) &&
     current.nodes.length === incoming.nodes.length && current.nodes.every((node, index) => sameNode(node, incoming.nodes[index]!)) &&

@@ -208,6 +208,19 @@ describe("World Instance host", () => {
       expect(advanced.summary).toMatchObject({ revision: 10, step: 10, participantCount: 0 });
       const stored = database.readInstance(created.summary.id).document;
       expect(stored).toMatchObject({ schemaVersion: 23, experimentEnrollment: null, experimentExclusion: { reason: "no-active-experiment" } });
+      const inspector = host.inspectorWindow(created.summary.id, { limit: 24 });
+      expect(inspector).toMatchObject({
+        apiVersion: 13,
+        algorithmComposition: {
+          nodeCount: 23,
+          root: {
+            role: "world-execution",
+            id: "eager-reference",
+            version: "16",
+            manifestHash: stored.executionAlgorithm.manifestHash,
+          },
+        },
+      });
       expect(stored.state.history).toHaveLength(10);
       expect(Object.values(stored.runs)).toHaveLength(1);
       expect(Object.values(stored.policyBindings).every((binding) => binding.kind === "model")).toBe(true);

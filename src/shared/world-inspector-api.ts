@@ -10,8 +10,9 @@ import type {
   RuntimeEvent,
 } from "../engine/runtime/observability";
 import type { InteractionDependency } from "../engine/runtime/execution";
+import type { AlgorithmRef } from "../engine/algorithms/composition";
 
-export const WORLD_INSPECTOR_API_VERSION = 12 as const;
+export const WORLD_INSPECTOR_API_VERSION = 13 as const;
 
 export type WorldInspectorNodeKind =
   | "commit"
@@ -361,6 +362,11 @@ export interface WorldInspectorTraceAvailability {
 
 export interface WorldInspectorWindow {
   apiVersion: typeof WORLD_INSPECTOR_API_VERSION;
+  /** Trusted-local projection of the exact recursive algorithm manifest pinned by this instance. */
+  algorithmComposition: {
+    root: AlgorithmRef;
+    nodeCount: number;
+  };
   instance: {
     id: string;
     title: string;
