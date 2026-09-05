@@ -4,6 +4,7 @@ import { DeterministicModelProvider } from "../testing/model-provider";
 import { WorldExecutionAlgorithmRegistry } from "../runtime/execution";
 import { defineAlgorithmRef, type AlgorithmRef, type AlgorithmRole } from "./composition";
 import { DEFAULT_ALGORITHM_REF, registerBuiltinAlgorithms } from "./registry";
+import { EagerReferenceAlgorithm } from "./eager-reference/eager-reference";
 
 function replaceChild<R extends AlgorithmRole>(
   ref: AlgorithmRef<R>,
@@ -82,5 +83,46 @@ describe("built-in algorithm registry", () => {
 
     expect(algorithm.manifest.hash).toBe(composition.manifestHash);
     expect(algorithm.manifest.children.actionCompilation?.children.candidateSelection?.id).toBe("test-full-catalog");
+  });
+
+  it("consumes typed batching capabilities instead of implementation-specific config fields", () => {
+    const registry = registerBuiltinAlgorithms(new WorldExecutionAlgorithmRegistry());
+    registry.registerAlgorithmDefinition({
+      role: "work-batching",
+      id: "fixed-small-batches",
+      version: "1",
+      contractVersion: 1,
+      maturity: "candidate",
+      configSchema: z.strictObject({ profile: z.literal("small") }),
+      children: [],
+      create: ({ ref, children }) => ({
+        algorithmIdentity: {
+          role: "work-batching",
+          id: "fixed-small-batches",
+          version: "1",
+          contractVersion: 1,
+        },
+        config: ref.config,
+        children,
+        maxSlots: 3,
+      }),
+    });
+    const batching = defineAlgorithmRef({
+      role: "work-batching",
+      id: "fixed-small-batches",
+      version: "1",
+      contractVersion: 1,
+      config: { profile: "small" },
+    });
+    const actionCompilation = replaceChild(
+      DEFAULT_ALGORITHM_REF.children.actionCompilation!,
+      "batching",
+      batching,
+    );
+    const composition = replaceChild(DEFAULT_ALGORITHM_REF, "actionCompilation", actionCompilation);
+    const algorithm = registry.create(composition, { provider: new DeterministicModelProvider() });
+
+    expect(algorithm).toBeInstanceOf(EagerReferenceAlgorithm);
+    expect((algorithm as EagerReferenceAlgorithm).config.actionCompilationMaxSlots).toBe(3);
   });
 });

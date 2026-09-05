@@ -120,7 +120,12 @@ describe("hierarchical algorithm composition", () => {
     const resolved = registry.resolve(valid, { marker: "host" });
     expect(resolved.path).toBe("root");
     expect(resolved.children.candidateSelection.path).toBe("root.candidateSelection");
-    expect(factoryCalls).toBe(2);
+    const mutable = structuredClone(valid);
+    const immutableResolution = registry.resolve(mutable, { marker: "host" });
+    (mutable.config as { maxSlots: number }).maxSlots = 1;
+    expect(immutableResolution.ref.config.maxSlots).toBe(12);
+    expect(Object.isFrozen(immutableResolution.ref.config)).toBe(true);
+    expect(factoryCalls).toBe(4);
   });
 
   it("rejects transformed defaults, wrong factory identities, and reused instances", () => {

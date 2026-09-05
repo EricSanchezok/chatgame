@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_EAGER_OUTPUT_RECOVERY,
   EagerSlotAttemptError,
   partitionEagerSlots,
   runEagerSlotBatches,
@@ -177,7 +178,7 @@ describe("eager slot batching", () => {
       maxInputBytes: 10_000,
       requestBytes: (batch) => batch.length,
       label: "test",
-      maxRepairs: 5,
+      recovery: { ...DEFAULT_EAGER_OUTPUT_RECOVERY, maxRepairs: 5 },
       issuesForError: () => ["same deterministic failure"],
       issueFingerprint: (issue) => issue,
       invoke: async (batch, attempt) => {

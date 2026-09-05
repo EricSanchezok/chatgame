@@ -251,7 +251,8 @@ export class AlgorithmRegistry<Services extends object = Record<string, never>> 
 
   resolve<R extends AlgorithmRole>(ref: AlgorithmRef<R>, services: Readonly<Services>): ResolvedAlgorithm<R> {
     this.validateTree(ref);
-    return this.resolveNode(ref, services, "root") as ResolvedAlgorithm<R>;
+    const snapshot = frozenClone(ref);
+    return this.resolveNode(snapshot, services, "root") as ResolvedAlgorithm<R>;
   }
 
   private definition(ref: AlgorithmRef): AlgorithmDefinition<AlgorithmRole, Services> {

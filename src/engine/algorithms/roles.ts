@@ -46,6 +46,12 @@ export interface AlgorithmBatchMetrics {
   singletonFailures: number;
 }
 
+export interface OutputRecoveryCapability {
+  readonly maxRepairs: number;
+  readonly exhaustion: "fail-step";
+  splitAt(slotCount: number): number;
+}
+
 export interface AgentCognitionBatchInput {
   agent: AgentState;
   observations: readonly ObservationPacket[];
@@ -109,7 +115,7 @@ export interface ActionCompilationCapability {
     scope: ModelExecutionScope,
     profileId: string,
     maxSlots: number,
-    repairAttempts?: number,
+    recovery?: Readonly<OutputRecoveryCapability>,
     symbolRepairPolicy?: Readonly<SymbolRepairPolicy>,
   ): Promise<ActionCompilationResult>;
 }
@@ -271,7 +277,7 @@ export interface ConfiguredRoleAlgorithm<R extends AlgorithmRole = AlgorithmRole
 }
 
 export interface AgentCognitionRoleAlgorithm extends ConfiguredRoleAlgorithm<"agent-cognition"> {
-  create(provider: StructuredModelProvider, repairAttempts: number): AgentCognitionCapability;
+  create(provider: StructuredModelProvider, recovery: Readonly<OutputRecoveryCapability>): AgentCognitionCapability;
 }
 
 export interface ActionCompilationRoleAlgorithm extends ConfiguredRoleAlgorithm<"action-compilation"> {
@@ -280,6 +286,18 @@ export interface ActionCompilationRoleAlgorithm extends ConfiguredRoleAlgorithm<
 
 export interface CandidateSelectionRoleAlgorithm extends ConfiguredRoleAlgorithm<"candidate-selection"> {
   readonly runtime: CandidateSelectionCapability | undefined;
+}
+
+export interface WorkBatchingRoleAlgorithm extends ConfiguredRoleAlgorithm<"work-batching"> {
+  readonly maxSlots: number;
+}
+
+export interface WorkSchedulingRoleAlgorithm extends ConfiguredRoleAlgorithm<"work-scheduling"> {
+  readonly maxConcurrent: number;
+}
+
+export interface OutputRecoveryRoleAlgorithm extends ConfiguredRoleAlgorithm<"output-recovery"> {
+  readonly policy: Readonly<OutputRecoveryCapability>;
 }
 
 export interface SymbolRepairRoleAlgorithm extends ConfiguredRoleAlgorithm<"symbol-repair"> {
@@ -294,22 +312,25 @@ export interface OnsetPerceptionRoleAlgorithm extends ConfiguredRoleAlgorithm<"o
   create(
     provider: StructuredModelProvider,
     rulePackages: RulePackageRegistry,
-    repairAttempts: number,
+    recovery: Readonly<OutputRecoveryCapability>,
   ): OnsetPerceptionCapability;
 }
 
 export interface ReactionDecisionRoleAlgorithm extends ConfiguredRoleAlgorithm<"reaction-decision"> {
-  create(provider: StructuredModelProvider, repairAttempts: number): ReactionDecisionCapability;
+  create(provider: StructuredModelProvider, recovery: Readonly<OutputRecoveryCapability>): ReactionDecisionCapability;
 }
 
 export interface TruthResolutionRoleAlgorithm extends ConfiguredRoleAlgorithm<"truth-resolution"> {
   create(
     provider: StructuredModelProvider,
     rulePackages: RulePackageRegistry,
-    repairAttempts: number,
+    recovery: Readonly<OutputRecoveryCapability>,
   ): TruthResolutionCapability;
 }
 
 export interface ObservationRenderingRoleAlgorithm extends ConfiguredRoleAlgorithm<"observation-rendering"> {
-  create(provider: StructuredModelProvider): ObservationRenderingCapability;
+  create(
+    provider: StructuredModelProvider,
+    recovery: Readonly<OutputRecoveryCapability>,
+  ): ObservationRenderingCapability;
 }

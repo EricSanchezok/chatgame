@@ -1,5 +1,6 @@
 import { AgentMind } from "./agent-mind";
 import { compileActions } from "./action-compiler";
+import { DEFAULT_EAGER_OUTPUT_RECOVERY } from "./eager-slot-batching";
 import type {
   ActionCompilationCapability,
   AgentCognitionBatchInput,
@@ -10,6 +11,7 @@ import type {
   ObservationRenderingCapability,
   OnsetPerceptionResult,
   OnsetPerceptionCapability,
+  OutputRecoveryCapability,
   PlannedTemporalActivity,
   ReactionDecisionCapability,
   TruthResolution,
@@ -285,7 +287,6 @@ export function createEagerReferenceAlgorithmRef(
     version: "1",
     contractVersion: 1,
     config: {
-      repairAttempts: 2,
       candidateKeyVersion: ACTION_COMPILATION_CANDIDATE_KEY_VERSION,
       candidateKeyPayloadLength: ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH,
     },
@@ -304,7 +305,7 @@ export function createEagerReferenceAlgorithmRef(
     id: "model-interaction-grounding",
     version: "1",
     contractVersion: 1,
-    config: { repairAttempts: 2 },
+    config: {},
     children: { scheduling: scheduling(config.groundingMaxSlots), recovery: recovery() },
   });
   const reactionResolution = defineAlgorithmRef({
@@ -717,6 +718,8 @@ export interface EagerReferenceComponents {
   truthResolution: TruthResolutionCapability;
   observationRendering: ObservationRenderingCapability;
   symbolRepair: Readonly<SymbolRepairPolicy>;
+  actionCompilationRecovery: Readonly<OutputRecoveryCapability>;
+  interactionGroundingRecovery: Readonly<OutputRecoveryCapability>;
 }
 
 async function resolveAgentReactionRequests(
@@ -951,6 +954,8 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   private readonly actionCompiler: EagerReferenceComponents["actionCompilation"];
   private readonly interactionGrounder: EagerReferenceComponents["interactionGrounding"];
   private readonly symbolRepairPolicy: Readonly<SymbolRepairPolicy>;
+  private readonly actionCompilationRecovery: Readonly<OutputRecoveryCapability>;
+  private readonly interactionGroundingRecovery: Readonly<OutputRecoveryCapability>;
   private readonly provider: StructuredModelProvider;
   private readonly rulePackages: RulePackageRegistry;
   private readonly actionCompilationRetrieval?: CandidateSelectionCapability;
@@ -971,7 +976,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       version: this.manifest.version,
       contractVersion: this.manifest.contractVersion,
     });
-    this.provider = components?.provider ?? new TruthBatchCoordinator(provider, this.config.truthBatchMaxSlots);
+    this.provider = components?.provider ?? provider;
     this.rulePackages = rulePackages ?? createCoreRulePackageRegistry();
     if (this.config.candidateRetrieval.mode === "runtime") {
       if (!actionCompilationRetrieval) throw new Error("candidate retrieval runtime is required by the eager-reference algorithm config");
@@ -991,17 +996,28 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.truthEngine = components.truthResolution;
       this.observationRenderer = components.observationRendering;
       this.symbolRepairPolicy = components.symbolRepair;
+      this.actionCompilationRecovery = components.actionCompilationRecovery;
+      this.interactionGroundingRecovery = components.interactionGroundingRecovery;
     } else {
-      const agentMind = new AgentMind(provider);
-      const truthEngine = new TruthEngine(this.provider, { rulePackages: this.rulePackages });
+      const truthProvider = new TruthBatchCoordinator(provider, this.config.truthBatchMaxSlots);
+      const agentMind = new AgentMind(provider, DEFAULT_EAGER_OUTPUT_RECOVERY);
+      const truthEngine = new TruthEngine(truthProvider, {
+        rulePackages: this.rulePackages,
+        repairAttempts: DEFAULT_EAGER_OUTPUT_RECOVERY.maxRepairs,
+      });
       this.agentMind = agentMind;
       this.reactionMind = agentMind;
       this.actionCompiler = compileActions;
       this.interactionGrounder = generateInteractionDependency;
       this.onsetPerception = truthEngine;
       this.truthEngine = truthEngine;
-      this.observationRenderer = new ObservationRenderer(this.provider);
+      this.observationRenderer = new ObservationRenderer(
+        truthProvider,
+        DEFAULT_EAGER_OUTPUT_RECOVERY.maxRepairs,
+      );
       this.symbolRepairPolicy = DEFAULT_SYMBOL_REPAIR_POLICY;
+      this.actionCompilationRecovery = DEFAULT_EAGER_OUTPUT_RECOVERY;
+      this.interactionGroundingRecovery = DEFAULT_EAGER_OUTPUT_RECOVERY;
     }
   }
 
@@ -1426,7 +1442,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
-      2,
+      this.actionCompilationRecovery,
       this.symbolRepairPolicy,
     );
     const resumedMindBatchPromise = this.thinkBatchWithFallback(
@@ -1465,7 +1481,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
-      2,
+      this.actionCompilationRecovery,
       this.symbolRepairPolicy,
     );
     await context.stages?.after(actionCompilationStage);
@@ -1823,7 +1839,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
-      2,
+      this.actionCompilationRecovery,
       this.symbolRepairPolicy,
     );
     if (replacementDecisions.length > 0) {
@@ -2019,7 +2035,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
         context.modelScope,
         input.definition.modelProfiles.grounding,
         0,
-        2,
+        this.interactionGroundingRecovery.maxRepairs,
       );
     }), "action grounding", this.config.groundingMaxSlots);
     const actionDependencies = [

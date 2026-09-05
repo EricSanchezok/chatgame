@@ -12,6 +12,7 @@ import {
 } from "./eager-reference/eager-reference";
 import { compileActions } from "./eager-reference/action-compiler";
 import { AgentMind } from "./eager-reference/agent-mind";
+import { DEFAULT_EAGER_OUTPUT_RECOVERY } from "./eager-reference/eager-slot-batching";
 import { generateInteractionDependency } from "../mechanics/action-dependency";
 import { TruthEngine } from "../mechanics/truth-engine";
 import { TruthBatchCoordinator } from "../mechanics/truth-batch-provider";
@@ -42,9 +43,13 @@ import type {
   InteractionGroundingRoleAlgorithm,
   ObservationRenderingRoleAlgorithm,
   OnsetPerceptionRoleAlgorithm,
+  OutputRecoveryCapability,
+  OutputRecoveryRoleAlgorithm,
   ReactionDecisionRoleAlgorithm,
   SymbolRepairRoleAlgorithm,
   TruthResolutionRoleAlgorithm,
+  WorkBatchingRoleAlgorithm,
+  WorkSchedulingRoleAlgorithm,
 } from "./roles";
 import {
   ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
@@ -60,9 +65,52 @@ class ConfiguredAlgorithm<R extends AlgorithmRole> implements ConfiguredRoleAlgo
   ) {}
 }
 
+class WorkBatchingAlgorithm extends ConfiguredAlgorithm<"work-batching"> implements WorkBatchingRoleAlgorithm {
+  readonly maxSlots: number;
+
+  constructor(
+    algorithmIdentity: AlgorithmIdentity<"work-batching">,
+    config: JsonObject,
+    children: Readonly<Record<string, ResolvedAlgorithm>>,
+  ) {
+    super(algorithmIdentity, config, children);
+    this.maxSlots = Number(config.maxSlots);
+  }
+}
+
+class WorkSchedulingAlgorithm extends ConfiguredAlgorithm<"work-scheduling"> implements WorkSchedulingRoleAlgorithm {
+  readonly maxConcurrent: number;
+
+  constructor(
+    algorithmIdentity: AlgorithmIdentity<"work-scheduling">,
+    config: JsonObject,
+    children: Readonly<Record<string, ResolvedAlgorithm>>,
+  ) {
+    super(algorithmIdentity, config, children);
+    this.maxConcurrent = Number(config.maxConcurrent);
+  }
+}
+
+class OutputRecoveryAlgorithm extends ConfiguredAlgorithm<"output-recovery"> implements OutputRecoveryRoleAlgorithm {
+  readonly policy: Readonly<OutputRecoveryCapability>;
+
+  constructor(
+    algorithmIdentity: AlgorithmIdentity<"output-recovery">,
+    config: JsonObject,
+    children: Readonly<Record<string, ResolvedAlgorithm>>,
+  ) {
+    super(algorithmIdentity, config, children);
+    this.policy = Object.freeze({
+      maxRepairs: Number(config.maxRepairs),
+      exhaustion: "fail-step" as const,
+      splitAt: DEFAULT_EAGER_OUTPUT_RECOVERY.splitAt,
+    });
+  }
+}
+
 class AgentCognitionAlgorithm extends ConfiguredAlgorithm<"agent-cognition"> implements AgentCognitionRoleAlgorithm {
-  create(provider: WorldExecutionAlgorithmServices["provider"], repairAttempts: number) {
-    return new AgentMind(provider, repairAttempts);
+  create(provider: WorldExecutionAlgorithmServices["provider"], recovery: Readonly<OutputRecoveryCapability>) {
+    return new AgentMind(provider, recovery);
   }
 }
 
@@ -90,26 +138,26 @@ class InteractionGroundingAlgorithm extends ConfiguredAlgorithm<"interaction-gro
 }
 
 class OnsetPerceptionAlgorithm extends ConfiguredAlgorithm<"onset-perception"> implements OnsetPerceptionRoleAlgorithm {
-  create(provider: WorldExecutionAlgorithmServices["provider"], rulePackages: NonNullable<WorldExecutionAlgorithmServices["rulePackages"]>, repairAttempts: number) {
-    return new TruthEngine(provider, { rulePackages, repairAttempts });
+  create(provider: WorldExecutionAlgorithmServices["provider"], rulePackages: NonNullable<WorldExecutionAlgorithmServices["rulePackages"]>, recovery: Readonly<OutputRecoveryCapability>) {
+    return new TruthEngine(provider, { rulePackages, repairAttempts: recovery.maxRepairs });
   }
 }
 
 class ReactionDecisionAlgorithm extends ConfiguredAlgorithm<"reaction-decision"> implements ReactionDecisionRoleAlgorithm {
-  create(provider: WorldExecutionAlgorithmServices["provider"], repairAttempts: number) {
-    return new AgentMind(provider, repairAttempts);
+  create(provider: WorldExecutionAlgorithmServices["provider"], recovery: Readonly<OutputRecoveryCapability>) {
+    return new AgentMind(provider, recovery);
   }
 }
 
 class TruthResolutionAlgorithm extends ConfiguredAlgorithm<"truth-resolution"> implements TruthResolutionRoleAlgorithm {
-  create(provider: WorldExecutionAlgorithmServices["provider"], rulePackages: NonNullable<WorldExecutionAlgorithmServices["rulePackages"]>, repairAttempts: number) {
-    return new TruthEngine(provider, { rulePackages, repairAttempts });
+  create(provider: WorldExecutionAlgorithmServices["provider"], rulePackages: NonNullable<WorldExecutionAlgorithmServices["rulePackages"]>, recovery: Readonly<OutputRecoveryCapability>) {
+    return new TruthEngine(provider, { rulePackages, repairAttempts: recovery.maxRepairs });
   }
 }
 
 class ObservationRenderingAlgorithm extends ConfiguredAlgorithm<"observation-rendering"> implements ObservationRenderingRoleAlgorithm {
-  create(provider: WorldExecutionAlgorithmServices["provider"]) {
-    return new ObservationRenderer(provider);
+  create(provider: WorldExecutionAlgorithmServices["provider"], recovery: Readonly<OutputRecoveryCapability>) {
+    return new ObservationRenderer(provider, recovery.maxRepairs);
   }
 }
 
@@ -149,13 +197,13 @@ const definitions = [
     maturity: "reference",
     configSchema: z.strictObject({ maxSlots: positiveSlots }),
     children: noChildren,
-  }),
+  }, (algorithmIdentity, config, children) => new WorkBatchingAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("work-scheduling", "bounded-concurrency"),
     maturity: "reference",
     configSchema: z.strictObject({ maxConcurrent: positiveSlots }),
     children: noChildren,
-  }),
+  }, (algorithmIdentity, config, children) => new WorkSchedulingAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("output-recovery", "localized-repair-bisect"),
     maturity: "reference",
@@ -165,7 +213,7 @@ const definitions = [
       split: z.literal("bisect"),
     }),
     children: noChildren,
-  }),
+  }, (algorithmIdentity, config, children) => new OutputRecoveryAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("candidate-selection", "full-catalog"),
     maturity: "reference",
@@ -233,7 +281,6 @@ const definitions = [
     ...identity("action-compilation", "model-action-compilation"),
     maturity: "reference",
     configSchema: z.strictObject({
-      repairAttempts: z.literal(2),
       candidateKeyVersion: z.literal(ACTION_COMPILATION_CANDIDATE_KEY_VERSION),
       candidateKeyPayloadLength: z.literal(ACTION_COMPILATION_CANDIDATE_KEY_SUFFIX_LENGTH),
     }),
@@ -247,7 +294,7 @@ const definitions = [
   configuredDefinition({
     ...identity("interaction-grounding", "model-interaction-grounding"),
     maturity: "reference",
-    configSchema: z.strictObject({ repairAttempts: z.literal(2) }),
+    configSchema: z.strictObject({}),
     children: [
       { name: "scheduling", role: "work-scheduling" },
       { name: "recovery", role: "output-recovery" },
@@ -296,12 +343,29 @@ function child(algorithm: ConfiguredRoleAlgorithm, slot: string): ConfiguredRole
   return configured(algorithm.children[slot], `${algorithm.algorithmIdentity.role}.${slot}`);
 }
 
-function configNumber(algorithm: ConfiguredRoleAlgorithm, field: string): number {
-  const value = algorithm.config[field];
-  if (typeof value !== "number") {
-    throw new Error(`${algorithm.algorithmIdentity.role}/${algorithm.algorithmIdentity.id} config ${field} must be a number`);
+function batchLimit(algorithm: ConfiguredRoleAlgorithm): number {
+  const batching = algorithm as Partial<WorkBatchingRoleAlgorithm>;
+  if (!Number.isSafeInteger(batching.maxSlots) || Number(batching.maxSlots) < 1) {
+    throw new Error(`${algorithm.algorithmIdentity.role}/${algorithm.algorithmIdentity.id} must expose a positive maxSlots capability`);
   }
-  return value;
+  return Number(batching.maxSlots);
+}
+
+function concurrencyLimit(algorithm: ConfiguredRoleAlgorithm): number {
+  const scheduling = algorithm as Partial<WorkSchedulingRoleAlgorithm>;
+  if (!Number.isSafeInteger(scheduling.maxConcurrent) || Number(scheduling.maxConcurrent) < 1) {
+    throw new Error(`${algorithm.algorithmIdentity.role}/${algorithm.algorithmIdentity.id} must expose a positive maxConcurrent capability`);
+  }
+  return Number(scheduling.maxConcurrent);
+}
+
+function recoveryPolicy(algorithm: ConfiguredRoleAlgorithm): Readonly<OutputRecoveryCapability> {
+  const recovery = (algorithm as Partial<OutputRecoveryRoleAlgorithm>).policy;
+  if (!recovery || !Number.isSafeInteger(recovery.maxRepairs) || recovery.maxRepairs < 0 ||
+    recovery.exhaustion !== "fail-step" || typeof recovery.splitAt !== "function") {
+    throw new Error(`${algorithm.algorithmIdentity.role}/${algorithm.algorithmIdentity.id} must expose a valid recovery capability`);
+  }
+  return recovery;
 }
 
 function eagerAlgorithms(children: Readonly<Record<string, ResolvedAlgorithm>>) {
@@ -329,23 +393,18 @@ function eagerConfig(children: Readonly<Record<string, ResolvedAlgorithm>>): Eag
       }
     : { mode: "off" as const };
   return {
-    actionCompilationMaxSlots: configNumber(child(algorithms.actionCompilation, "batching"), "maxSlots"),
-    agentMindMaxSlots: configNumber(child(algorithms.agentCognition, "batching"), "maxSlots"),
-    reactionMaxSlots: configNumber(child(algorithms.reactionResolution, "scheduling"), "maxConcurrent"),
-    groundingMaxSlots: configNumber(child(algorithms.interactionGrounding, "scheduling"), "maxConcurrent"),
-    truthBatchMaxSlots: configNumber(child(algorithms.truthResolution, "batching"), "maxSlots"),
+    actionCompilationMaxSlots: batchLimit(child(algorithms.actionCompilation, "batching")),
+    agentMindMaxSlots: batchLimit(child(algorithms.agentCognition, "batching")),
+    reactionMaxSlots: concurrencyLimit(child(algorithms.reactionResolution, "scheduling")),
+    groundingMaxSlots: concurrencyLimit(child(algorithms.interactionGrounding, "scheduling")),
+    truthBatchMaxSlots: batchLimit(child(algorithms.truthResolution, "batching")),
     candidateRetrieval,
   };
-}
-
-function recoveryAttempts(algorithm: ConfiguredRoleAlgorithm): number {
-  return configNumber(child(algorithm, "recovery"), "maxRepairs");
 }
 
 function eagerComponents(
   children: Readonly<Record<string, ResolvedAlgorithm>>,
   services: Readonly<WorldExecutionAlgorithmServices>,
-  config: Readonly<EagerReferenceAlgorithmConfig>,
 ): EagerReferenceComponents {
   const algorithms = eagerAlgorithms(children);
   const agentCognition = algorithms.agentCognition as AgentCognitionRoleAlgorithm;
@@ -366,17 +425,34 @@ function eagerComponents(
   const symbolRepair = child(algorithms.actionCompilation, "symbolRepair") as SymbolRepairRoleAlgorithm;
   if (!symbolRepair.policy) throw new Error("symbol-repair implementation must expose its policy");
   const rulePackages = services.rulePackages ?? createCoreRulePackageRegistry();
-  const truthProvider = new TruthBatchCoordinator(services.provider, config.truthBatchMaxSlots);
+  const actionCompilationRecovery = recoveryPolicy(child(algorithms.actionCompilation, "recovery"));
+  const interactionGroundingRecovery = recoveryPolicy(child(algorithms.interactionGrounding, "recovery"));
+  const reactionRecovery = recoveryPolicy(child(algorithms.reactionResolution, "recovery"));
+  const truthRecovery = recoveryPolicy(child(algorithms.truthResolution, "recovery"));
+  const observationRecovery = recoveryPolicy(child(algorithms.observationRendering, "recovery"));
+  const truthProvider = new TruthBatchCoordinator(
+    services.provider,
+    batchLimit(child(algorithms.truthResolution, "batching")),
+  );
+  const observationProvider = new TruthBatchCoordinator(
+    services.provider,
+    batchLimit(child(algorithms.observationRendering, "batching")),
+  );
   return {
-    provider: truthProvider,
-    agentCognition: agentCognition.create(services.provider, recoveryAttempts(agentCognition)),
+    provider: services.provider,
+    agentCognition: agentCognition.create(
+      services.provider,
+      recoveryPolicy(child(agentCognition, "recovery")),
+    ),
     actionCompilation: actionCompilation.compile,
     interactionGrounding: interactionGrounding.ground,
-    onsetPerception: onsetPerception.create(truthProvider, rulePackages, recoveryAttempts(algorithms.reactionResolution)),
-    reactionDecision: reactionDecision.create(services.provider, recoveryAttempts(algorithms.reactionResolution)),
-    truthResolution: truthResolution.create(truthProvider, rulePackages, recoveryAttempts(truthResolution)),
-    observationRendering: observationRendering.create(truthProvider),
+    onsetPerception: onsetPerception.create(services.provider, rulePackages, reactionRecovery),
+    reactionDecision: reactionDecision.create(services.provider, reactionRecovery),
+    truthResolution: truthResolution.create(truthProvider, rulePackages, truthRecovery),
+    observationRendering: observationRendering.create(observationProvider, observationRecovery),
     symbolRepair: symbolRepair.policy,
+    actionCompilationRecovery,
+    interactionGroundingRecovery,
   };
 }
 
@@ -414,7 +490,7 @@ export function registerBuiltinAlgorithms(
         services.rulePackages,
         config,
         candidateSelection.runtime,
-        eagerComponents(children, services, config),
+        eagerComponents(children, services),
         algorithmManifest(ref as AlgorithmRef<"world-execution">),
       );
     },

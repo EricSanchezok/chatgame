@@ -66,7 +66,6 @@
                 "version": "1",
                 "contractVersion": 1,
                 "config": {
-                  "repairAttempts": 2,
                   "candidateKeyVersion": 2,
                   "candidateKeyPayloadLength": 12
                 },
@@ -122,16 +121,14 @@
                     "manifestHash": "00fef850faee60380416d17f007f154e41064c65d25ccb8bc727e5dbd787b1b7"
                   }
                 },
-                "manifestHash": "952a1b22d35e7929a90db158fb7b87544e890568c0a78d0cee7be4c4fe4e49f7"
+                "manifestHash": "79baa678938e3792435396d84b9faa95366c54f55e8816395814eda261e7e350"
               },
               "interactionGrounding": {
                 "role": "interaction-grounding",
                 "id": "model-interaction-grounding",
                 "version": "1",
                 "contractVersion": 1,
-                "config": {
-                  "repairAttempts": 2
-                },
+                "config": {},
                 "children": {
                   "scheduling": {
                     "role": "work-scheduling",
@@ -158,7 +155,7 @@
                     "manifestHash": "00fef850faee60380416d17f007f154e41064c65d25ccb8bc727e5dbd787b1b7"
                   }
                 },
-                "manifestHash": "97b4cccbd43981eaa6ff85f2a3bf655964e2ef36b183def001c37871f25d8cc7"
+                "manifestHash": "b8f404f7113e6201b9302aa8e1a6a8d8e99a02442daeaa347f6c0da36126983a"
               },
               "reactionResolution": {
                 "role": "reaction-resolution",
@@ -284,7 +281,7 @@
                 "manifestHash": "730d575137c49d48d436626673708aebb4b7fa71d99992c6d923e85cbf6cf340"
               }
             },
-            "manifestHash": "eb72103bbdd6ca579a32dcff7a80797c03b45a9b6b3018d1057c2aec20f2606e"
+            "manifestHash": "add2fbf1b47acf7373969cee73571e25cff6886c6aabfe471a0c08bd8cc08717"
           }
         },
         {
@@ -339,7 +336,6 @@
                 "version": "1",
                 "contractVersion": 1,
                 "config": {
-                  "repairAttempts": 2,
                   "candidateKeyVersion": 2,
                   "candidateKeyPayloadLength": 12
                 },
@@ -404,16 +400,14 @@
                     "manifestHash": "00fef850faee60380416d17f007f154e41064c65d25ccb8bc727e5dbd787b1b7"
                   }
                 },
-                "manifestHash": "2f68c74bc27820b970c6fd327367c86b616f15fb508cf52235109d46e8096226"
+                "manifestHash": "744a4bc2de9bfd154b5385605617e7fc7ba8593313449e9137ad91d00b1a144a"
               },
               "interactionGrounding": {
                 "role": "interaction-grounding",
                 "id": "model-interaction-grounding",
                 "version": "1",
                 "contractVersion": 1,
-                "config": {
-                  "repairAttempts": 2
-                },
+                "config": {},
                 "children": {
                   "scheduling": {
                     "role": "work-scheduling",
@@ -440,7 +434,7 @@
                     "manifestHash": "00fef850faee60380416d17f007f154e41064c65d25ccb8bc727e5dbd787b1b7"
                   }
                 },
-                "manifestHash": "97b4cccbd43981eaa6ff85f2a3bf655964e2ef36b183def001c37871f25d8cc7"
+                "manifestHash": "b8f404f7113e6201b9302aa8e1a6a8d8e99a02442daeaa347f6c0da36126983a"
               },
               "reactionResolution": {
                 "role": "reaction-resolution",
@@ -566,7 +560,7 @@
                 "manifestHash": "730d575137c49d48d436626673708aebb4b7fa71d99992c6d923e85cbf6cf340"
               }
             },
-            "manifestHash": "96d034d5e97d40b2330400ec59d4299f91ee96dbbb00636f573fcc3a2865f327"
+            "manifestHash": "531c224dd4494a7c48cff09a2b99c62718f0b6fdbd9a472f9aa89014877fdf59"
           }
         }
       ],
@@ -574,7 +568,7 @@
         "artifactHash": "sha256:465fca4f2035017298745719fda08b698e110ee97d453cef838668aae9af309e",
         "verifier": "action-compilation-retrieval-v4"
       },
-      "hash": "0cee4423d521043e49f515bb702b5211aa188096a10955fbd30b843d6acfd5a8"
+      "hash": "b8a3f971492285ee7676aab71ebb58dbf3056beee5c61355e536f27ddcf4e01e"
     }
   ],
   "active": []

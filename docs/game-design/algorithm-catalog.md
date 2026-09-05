@@ -49,20 +49,20 @@ These implementations are replaceable inside the offline evaluation harness, but
 
 ## Default composition
 
-Root hash: `eb72103bbdd6ca579a32dcff7a80797c03b45a9b6b3018d1057c2aec20f2606e`
+Root hash: `add2fbf1b47acf7373969cee73571e25cff6886c6aabfe471a0c08bd8cc08717`
 
 | Node path | Role | Algorithm | Contract | Manifest hash |
 | --- | --- | --- | ---: | --- |
-| `root` | `world-execution` | `eager-reference@16` | 6 | `eb72103bbdd6ca579a32dcff7a80797c03b45a9b6b3018d1057c2aec20f2606e` |
+| `root` | `world-execution` | `eager-reference@16` | 6 | `add2fbf1b47acf7373969cee73571e25cff6886c6aabfe471a0c08bd8cc08717` |
 | `root.agentCognition` | `agent-cognition` | `model-agent-cognition@1` | 1 | `1daa82dc5f667b7486ecddcbc1cd07d57accf916cb66a2d7d7ae32cf04d9630d` |
 | `root.agentCognition.batching` | `work-batching` | `bounded-slot-batching@1` | 1 | `8a6cc0ef438150ba0f22f8671b1ccedb81468f0c407976caae1521102e771981` |
 | `root.agentCognition.recovery` | `output-recovery` | `localized-repair-bisect@1` | 1 | `00fef850faee60380416d17f007f154e41064c65d25ccb8bc727e5dbd787b1b7` |
-| `root.actionCompilation` | `action-compilation` | `model-action-compilation@1` | 1 | `952a1b22d35e7929a90db158fb7b87544e890568c0a78d0cee7be4c4fe4e49f7` |
+| `root.actionCompilation` | `action-compilation` | `model-action-compilation@1` | 1 | `79baa678938e3792435396d84b9faa95366c54f55e8816395814eda261e7e350` |
 | `root.actionCompilation.candidateSelection` | `candidate-selection` | `full-catalog@1` | 1 | `ca66d5b98d4d4138f564752da5cddb72221b9d9e9eee668baae8565419ce86b0` |
 | `root.actionCompilation.symbolRepair` | `symbol-repair` | `bounded-symbol-repair@1` | 1 | `7a97611c42b335f7a2532431340c484fbce35920ec65e598a95c62d11e3634a8` |
 | `root.actionCompilation.batching` | `work-batching` | `bounded-slot-batching@1` | 1 | `ec3df81acb514ffef2029f3e8d9bb1a11ba4bec19d4d76e95f3f1baedc350a46` |
 | `root.actionCompilation.recovery` | `output-recovery` | `localized-repair-bisect@1` | 1 | `00fef850faee60380416d17f007f154e41064c65d25ccb8bc727e5dbd787b1b7` |
-| `root.interactionGrounding` | `interaction-grounding` | `model-interaction-grounding@1` | 1 | `97b4cccbd43981eaa6ff85f2a3bf655964e2ef36b183def001c37871f25d8cc7` |
+| `root.interactionGrounding` | `interaction-grounding` | `model-interaction-grounding@1` | 1 | `b8f404f7113e6201b9302aa8e1a6a8d8e99a02442daeaa347f6c0da36126983a` |
 | `root.interactionGrounding.scheduling` | `work-scheduling` | `bounded-concurrency@1` | 1 | `c7439a837f29219df2f742ad910a15bf05d759586e1ed95260f724aba6a33b84` |
 | `root.interactionGrounding.recovery` | `output-recovery` | `localized-repair-bisect@1` | 1 | `00fef850faee60380416d17f007f154e41064c65d25ccb8bc727e5dbd787b1b7` |
 | `root.reactionResolution` | `reaction-resolution` | `onset-reaction@1` | 1 | `366c5df658b3b67ccabfd72c7aef0f19bafe65fa278a9f73031d21afc0d9871d` |

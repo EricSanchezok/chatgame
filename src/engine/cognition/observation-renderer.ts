@@ -542,6 +542,7 @@ async function renderObserver(
   observerId: string,
   slot: number,
   scope: ModelExecutionScope,
+  repairAttempts: number,
 ): Promise<{ packet: ObservationPacket; audit: ModelExecutionAudit; calls: number }> {
   const owner = `${input.identityOwner}:observer-${observerId}`;
   const profile = provider.catalog.profile(input.definition.modelProfiles.observation);
@@ -550,7 +551,7 @@ async function renderObserver(
       role: "observation-renderer",
       repairScope: "observer",
       targetIds: [observerId],
-      maxRepairs: 2,
+      maxRepairs: repairAttempts,
       logicalInvocationId: modelInvocationLogicalId(scope, "observation-renderer", owner),
       invoke: async (repair) => {
         const issues = repair.issues.map((issue) => ({
@@ -666,7 +667,10 @@ async function renderObserver(
 }
 
 export class ObservationRenderer {
-  constructor(private readonly provider: StructuredModelProvider) {}
+  constructor(
+    private readonly provider: StructuredModelProvider,
+    private readonly repairAttempts = 2,
+  ) {}
 
   async render(input: ObservationRenderingInput, scope: ModelExecutionScope): Promise<{
     packets: ObservationPacket[];
@@ -677,7 +681,7 @@ export class ObservationRenderer {
       throw new Error("observation rendering requires unique observer ids");
     }
     const rendered = await Promise.all(input.observerIds.map((observerId, slot) =>
-      renderObserver(this.provider, input, observerId, slot, scope)));
+      renderObserver(this.provider, input, observerId, slot, scope, this.repairAttempts)));
     const packets = rendered.map((entry) => entry.packet);
     const expected = [...input.observerIds].sort();
     const actual = packets.map((packet) => packet.observerId).sort();

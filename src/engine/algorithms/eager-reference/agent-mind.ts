@@ -23,6 +23,7 @@ import type {
 import {
   eagerRequestBytes,
   eagerSlotBatchOwner,
+  DEFAULT_EAGER_OUTPUT_RECOVERY,
   EagerSlotAttemptError,
   isTerminalEagerModelError,
   runEagerSlotBatches,
@@ -32,6 +33,7 @@ import {
 import type {
   AgentCognitionBatchInput,
   AgentCognitionBatchResult,
+  OutputRecoveryCapability,
 } from "../roles";
 import {
   modelInvocationCorrelation,
@@ -550,7 +552,7 @@ function assertAgentMindSlotCoverage(
 export class AgentMind {
   constructor(
     private readonly provider: StructuredModelProvider,
-    private readonly repairAttempts = 2,
+    private readonly recovery: Readonly<OutputRecoveryCapability> = DEFAULT_EAGER_OUTPUT_RECOVERY,
   ) {}
 
   async thinkBatch(
@@ -594,7 +596,7 @@ export class AgentMind {
         ),
         label: `AgentMind ${purpose}`,
         issuesForError: (error) => validationIssues(error),
-        maxRepairs: this.repairAttempts,
+        recovery: this.recovery,
         invoke: async (batch, attempt, lineage: EagerSlotAttemptLineage) => {
           const owner = eagerSlotBatchOwner(`agent-mind-${purpose}`, batch);
           const identity = modelInvocationIdentity(scope, role, owner, attempt + 1);
@@ -822,7 +824,7 @@ export class AgentMind {
         role: "agent-reaction",
         repairScope: "slot",
         targetIds: [agent.id],
-        maxRepairs: this.repairAttempts,
+        maxRepairs: this.recovery.maxRepairs,
         logicalInvocationId,
         invoke: async (repairContext) => {
         const contextStartedAt = Date.now();

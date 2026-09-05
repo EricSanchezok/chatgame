@@ -12,6 +12,7 @@ import {
   actionGroundingReferenceResolver,
 } from "../../mechanics/action-dependency";
 import {
+  DEFAULT_EAGER_OUTPUT_RECOVERY,
   eagerRequestBytes,
   eagerSlotBatchOwner,
   EagerSlotAttemptError,
@@ -24,6 +25,7 @@ import {
 import type {
   ActionCompilationResult,
   CompiledAction,
+  OutputRecoveryCapability,
 } from "../roles";
 import type { ActionCompilationDraft } from "../../runtime/execution";
 import type { ActionCompilationReferenceAudit, AgentActionProposal, CausalAssertion, DiscreteRandomAggregate, ModelExecutionAudit, ModelOutputIssue, SimulationState } from "../../contracts/model";
@@ -919,7 +921,7 @@ export async function compileActions(
   scope: ModelExecutionScope,
   profileId: string,
   maxSlots: number,
-  repairAttempts = 2,
+  recovery: Readonly<OutputRecoveryCapability> = DEFAULT_EAGER_OUTPUT_RECOVERY,
   symbolRepairPolicy?: Readonly<import("../../contracts/symbol-repair").SymbolRepairPolicy>,
 ): Promise<ActionCompilationResult> {
   if (actions.length === 0) {
@@ -947,7 +949,7 @@ export async function compileActions(
     label: "action compilation",
     issuesForError: actionCompilationRepairIssues,
     issueFingerprint: (issue) => semanticRepairFingerprint([issue], MODEL_CONTEXT_CONTRACT_VERSION),
-    maxRepairs: repairAttempts,
+    recovery,
     invoke: async (batch, attempt, lineage: EagerSlotAttemptLineage) => {
       const owner = eagerSlotBatchOwner("action-compilation", batch);
       const identity = modelInvocationIdentity(scope, "action-compilation", owner, attempt + 1);
