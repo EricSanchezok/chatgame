@@ -237,7 +237,7 @@ function validateActionWindow(document: WorldInstanceDocument): void {
 }
 
 export function validateWorldInstanceDocument(document: WorldInstanceDocument): void {
-  if (document.schemaVersion !== 22) throw new Error("world instance schema v22 required");
+  if (document.schemaVersion !== 23) throw new Error("world instance schema v23 required");
   requireText(document.id, "instance id");
   requireText(document.title, "instance title");
   validateAlgorithmRef(document.executionAlgorithm);

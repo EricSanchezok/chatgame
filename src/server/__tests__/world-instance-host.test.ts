@@ -207,7 +207,7 @@ describe("World Instance host", () => {
       });
       expect(advanced.summary).toMatchObject({ revision: 10, step: 10, participantCount: 0 });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored).toMatchObject({ schemaVersion: 22, experimentEnrollment: null, experimentExclusion: { reason: "no-active-experiment" } });
+      expect(stored).toMatchObject({ schemaVersion: 23, experimentEnrollment: null, experimentExclusion: { reason: "no-active-experiment" } });
       expect(stored.state.history).toHaveLength(10);
       expect(Object.values(stored.runs)).toHaveLength(1);
       expect(Object.values(stored.policyBindings).every((binding) => binding.kind === "model")).toBe(true);
@@ -494,7 +494,7 @@ describe("World Instance host", () => {
         response: { possibleNextActions: expect.any(Array) },
       });
       const stored = database.readInstance(created.summary.id).document;
-      expect(stored.schemaVersion).toBe(22);
+      expect(stored.schemaVersion).toBe(23);
       expect(stored.experimentEnrollment).toBeNull();
       expect(stored.executionAlgorithm).toMatchObject({
         id: "eager-reference",
@@ -1106,7 +1106,7 @@ describe("World Instance host", () => {
       const source = database.readInstance(created.summary.id).document;
       const legacy = structuredClone(source);
       (legacy as unknown as { schemaVersion: number }).schemaVersion = 17;
-      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v22 required");
+      expect(() => validateWorldInstanceDocument(legacy)).toThrow("world instance schema v23 required");
 
       const missingExperimentDecision = structuredClone(source);
       missingExperimentDecision.experimentEnrollment = null;

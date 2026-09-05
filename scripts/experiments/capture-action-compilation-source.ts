@@ -11,7 +11,7 @@ import type { RuntimeEvent } from "../../src/engine/runtime/observability";
 interface Args { database: string; executionIds: string[]; output: string; dryRun: boolean; force: boolean; }
 function required(argv: readonly string[], index: number, option: string): string { const value = argv[index]; if (!value || value.startsWith("--")) throw new Error(`${option} requires a value`); return value; }
 function parse(argv: readonly string[]): Args {
-  const result: Args = { database: path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v22", "livingworld.sqlite"), executionIds: [], output: path.resolve(".livingworld-benchmarks/source/action-compilation"), dryRun: false, force: false };
+  const result: Args = { database: path.resolve(process.env.LIVINGWORLD_DATA_ROOT ?? ".livingworld-v23", "livingworld.sqlite"), executionIds: [], output: path.resolve(".livingworld-benchmarks/source/action-compilation"), dryRun: false, force: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--database") result.database = path.resolve(required(argv, ++index, argument));
