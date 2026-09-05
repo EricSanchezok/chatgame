@@ -7,10 +7,20 @@ import {
   createEagerReferenceAlgorithmRef,
   EagerReferenceAlgorithm,
   EAGER_REFERENCE_MANIFEST,
+  type EagerReferenceComponents,
   type EagerReferenceAlgorithmConfig,
 } from "./eager-reference/eager-reference";
+import { compileActions } from "./eager-reference/action-compiler";
+import { AgentMind } from "./eager-reference/agent-mind";
+import { generateInteractionDependency } from "../mechanics/action-dependency";
+import { TruthEngine } from "../mechanics/truth-engine";
+import { TruthBatchCoordinator } from "../mechanics/truth-batch-provider";
+import { ObservationRenderer } from "../cognition/observation-renderer";
+import { createCoreRulePackageRegistry } from "../mechanics/rule-package";
+import { DEFAULT_SYMBOL_REPAIR_POLICY } from "../contracts/symbol-repair";
 import {
   algorithmRef,
+  algorithmManifest,
   WorldExecutionAlgorithmRegistry,
   type AlgorithmRef,
   type JsonObject,
@@ -21,16 +31,86 @@ import type {
   AlgorithmIdentity,
   AlgorithmImplementation,
   AlgorithmRole,
+  ResolvedAlgorithm,
 } from "./composition";
-import { ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION } from "./eager-reference/candidate-retrieval/runtime";
+import type {
+  ActionCompilationRoleAlgorithm,
+  AgentCognitionRoleAlgorithm,
+  CandidateSelectionRoleAlgorithm,
+  ConfiguredRoleAlgorithm,
+  InteractionGroundingRoleAlgorithm,
+  ObservationRenderingRoleAlgorithm,
+  OnsetPerceptionRoleAlgorithm,
+  ReactionDecisionRoleAlgorithm,
+  SymbolRepairRoleAlgorithm,
+  TruthResolutionRoleAlgorithm,
+} from "./roles";
+import {
+  ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
+  type ActionCompilationRetrievalRuntime,
+} from "./eager-reference/candidate-retrieval/runtime";
 
 export { ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION } from "./eager-reference/candidate-retrieval/runtime";
 
-class ConfiguredAlgorithm<R extends AlgorithmRole> implements AlgorithmImplementation<R> {
+class ConfiguredAlgorithm<R extends AlgorithmRole> implements ConfiguredRoleAlgorithm<R> {
   constructor(
     readonly algorithmIdentity: AlgorithmIdentity<R>,
     readonly config: JsonObject,
+    readonly children: Readonly<Record<string, ResolvedAlgorithm>>,
   ) {}
+}
+
+class AgentCognitionAlgorithm extends ConfiguredAlgorithm<"agent-cognition"> implements AgentCognitionRoleAlgorithm {
+  create(provider: WorldExecutionAlgorithmServices["provider"], repairAttempts: number) {
+    return new AgentMind(provider, repairAttempts);
+  }
+}
+
+class ActionCompilationAlgorithm extends ConfiguredAlgorithm<"action-compilation"> implements ActionCompilationRoleAlgorithm {
+  readonly compile = compileActions;
+}
+
+class CandidateSelectionAlgorithm extends ConfiguredAlgorithm<"candidate-selection"> implements CandidateSelectionRoleAlgorithm {
+  constructor(
+    algorithmIdentity: AlgorithmIdentity<"candidate-selection">,
+    config: JsonObject,
+    children: Readonly<Record<string, ResolvedAlgorithm>>,
+    readonly runtime: ActionCompilationRetrievalRuntime | undefined,
+  ) {
+    super(algorithmIdentity, config, children);
+  }
+}
+
+class SymbolRepairAlgorithm extends ConfiguredAlgorithm<"symbol-repair"> implements SymbolRepairRoleAlgorithm {
+  readonly policy = DEFAULT_SYMBOL_REPAIR_POLICY;
+}
+
+class InteractionGroundingAlgorithm extends ConfiguredAlgorithm<"interaction-grounding"> implements InteractionGroundingRoleAlgorithm {
+  readonly ground = generateInteractionDependency;
+}
+
+class OnsetPerceptionAlgorithm extends ConfiguredAlgorithm<"onset-perception"> implements OnsetPerceptionRoleAlgorithm {
+  create(provider: WorldExecutionAlgorithmServices["provider"], rulePackages: NonNullable<WorldExecutionAlgorithmServices["rulePackages"]>, repairAttempts: number) {
+    return new TruthEngine(provider, { rulePackages, repairAttempts });
+  }
+}
+
+class ReactionDecisionAlgorithm extends ConfiguredAlgorithm<"reaction-decision"> implements ReactionDecisionRoleAlgorithm {
+  create(provider: WorldExecutionAlgorithmServices["provider"], repairAttempts: number) {
+    return new AgentMind(provider, repairAttempts);
+  }
+}
+
+class TruthResolutionAlgorithm extends ConfiguredAlgorithm<"truth-resolution"> implements TruthResolutionRoleAlgorithm {
+  create(provider: WorldExecutionAlgorithmServices["provider"], rulePackages: NonNullable<WorldExecutionAlgorithmServices["rulePackages"]>, repairAttempts: number) {
+    return new TruthEngine(provider, { rulePackages, repairAttempts });
+  }
+}
+
+class ObservationRenderingAlgorithm extends ConfiguredAlgorithm<"observation-rendering"> implements ObservationRenderingRoleAlgorithm {
+  create(provider: WorldExecutionAlgorithmServices["provider"]) {
+    return new ObservationRenderer(provider);
+  }
 }
 
 const positiveSlots = z.number().int().min(1).max(64);
@@ -48,10 +128,18 @@ function identity<R extends AlgorithmRole>(
 function configuredDefinition<R extends AlgorithmRole>(input: Omit<
   AlgorithmDefinition<R, WorldExecutionAlgorithmServices>,
   "create"
->): AlgorithmDefinition<R, WorldExecutionAlgorithmServices> {
+>, create: (
+  identity: AlgorithmIdentity<R>,
+  config: JsonObject,
+  children: Readonly<Record<string, ResolvedAlgorithm>>,
+  services: Readonly<WorldExecutionAlgorithmServices>,
+  ref: AlgorithmRef<R>,
+) => AlgorithmImplementation<R> = (algorithmIdentity, config, children) =>
+    new ConfiguredAlgorithm(algorithmIdentity, config, children)
+): AlgorithmDefinition<R, WorldExecutionAlgorithmServices> {
   return {
     ...input,
-    create: ({ ref }) => new ConfiguredAlgorithm(input, ref.config),
+    create: ({ ref, children, services }) => create(input, ref.config, children, services, ref as AlgorithmRef<R>),
   };
 }
 
@@ -83,7 +171,8 @@ const definitions = [
     maturity: "reference",
     configSchema: z.strictObject({}),
     children: noChildren,
-  }),
+  }, (algorithmIdentity, config, children) =>
+    new CandidateSelectionAlgorithm(algorithmIdentity, config, children, undefined)),
   configuredDefinition({
     ...identity("candidate-selection", "graph-hybrid-e5"),
     maturity: "candidate",
@@ -98,6 +187,12 @@ const definitions = [
       rankerArtifactHash: z.null(),
     }),
     children: noChildren,
+  }, (algorithmIdentity, config, children, services, ref) => {
+    const runtime = services.resources?.resolve<ActionCompilationRetrievalRuntime>("candidate-selection-runtime", ref);
+    if (!runtime) {
+      throw new Error("graph-hybrid-e5 candidate selection requires its pinned runtime");
+    }
+    return new CandidateSelectionAlgorithm(algorithmIdentity, config, children, runtime);
   }),
   configuredDefinition({
     ...identity("symbol-repair", "bounded-symbol-repair"),
@@ -112,19 +207,19 @@ const definitions = [
       maxAuditCandidates: z.literal(8),
     }),
     children: noChildren,
-  }),
+  }, (algorithmIdentity, config, children) => new SymbolRepairAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("onset-perception", "model-onset-perception"),
     maturity: "reference",
     configSchema: z.strictObject({ fallback: z.literal("global"), contextMode: z.literal("full") }),
     children: noChildren,
-  }),
+  }, (algorithmIdentity, config, children) => new OnsetPerceptionAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("reaction-decision", "model-reaction-decision"),
     maturity: "reference",
     configSchema: z.strictObject({}),
     children: noChildren,
-  }),
+  }, (algorithmIdentity, config, children) => new ReactionDecisionAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("agent-cognition", "model-agent-cognition"),
     maturity: "reference",
@@ -133,7 +228,7 @@ const definitions = [
       { name: "batching", role: "work-batching" },
       { name: "recovery", role: "output-recovery" },
     ],
-  }),
+  }, (algorithmIdentity, config, children) => new AgentCognitionAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("action-compilation", "model-action-compilation"),
     maturity: "reference",
@@ -148,7 +243,7 @@ const definitions = [
       { name: "batching", role: "work-batching" },
       { name: "recovery", role: "output-recovery" },
     ],
-  }),
+  }, (algorithmIdentity, config, children) => new ActionCompilationAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("interaction-grounding", "model-interaction-grounding"),
     maturity: "reference",
@@ -157,7 +252,7 @@ const definitions = [
       { name: "scheduling", role: "work-scheduling" },
       { name: "recovery", role: "output-recovery" },
     ],
-  }),
+  }, (algorithmIdentity, config, children) => new InteractionGroundingAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("reaction-resolution", "onset-reaction"),
     maturity: "reference",
@@ -177,7 +272,7 @@ const definitions = [
       { name: "batching", role: "work-batching" },
       { name: "recovery", role: "output-recovery" },
     ],
-  }),
+  }, (algorithmIdentity, config, children) => new TruthResolutionAlgorithm(algorithmIdentity, config, children)),
   configuredDefinition({
     ...identity("observation-rendering", "model-observation-rendering"),
     maturity: "reference",
@@ -186,41 +281,102 @@ const definitions = [
       { name: "batching", role: "work-batching" },
       { name: "recovery", role: "output-recovery" },
     ],
-  }),
+  }, (algorithmIdentity, config, children) => new ObservationRenderingAlgorithm(algorithmIdentity, config, children)),
 ] as const;
 
-function configNumber(ref: AlgorithmRef, field: string): number {
-  const value = ref.config[field];
-  if (typeof value !== "number") throw new Error(`${ref.role}/${ref.id} config ${field} must be a number`);
+function configured(node: ResolvedAlgorithm | undefined, label: string): ConfiguredRoleAlgorithm {
+  const implementation = node?.implementation as Partial<ConfiguredRoleAlgorithm> | undefined;
+  if (!implementation || !implementation.config || !implementation.children) {
+    throw new Error(`${label} did not resolve a configured algorithm implementation`);
+  }
+  return implementation as ConfiguredRoleAlgorithm;
+}
+
+function child(algorithm: ConfiguredRoleAlgorithm, slot: string): ConfiguredRoleAlgorithm {
+  return configured(algorithm.children[slot], `${algorithm.algorithmIdentity.role}.${slot}`);
+}
+
+function configNumber(algorithm: ConfiguredRoleAlgorithm, field: string): number {
+  const value = algorithm.config[field];
+  if (typeof value !== "number") {
+    throw new Error(`${algorithm.algorithmIdentity.role}/${algorithm.algorithmIdentity.id} config ${field} must be a number`);
+  }
   return value;
 }
 
-function eagerConfig(ref: AlgorithmRef<"world-execution">): EagerReferenceAlgorithmConfig {
-  const actionCompilation = ref.children.actionCompilation;
-  const agentCognition = ref.children.agentCognition;
-  const interactionGrounding = ref.children.interactionGrounding;
-  const reactionResolution = ref.children.reactionResolution;
-  const truthResolution = ref.children.truthResolution;
-  if (!actionCompilation || !agentCognition || !interactionGrounding || !reactionResolution || !truthResolution) {
-    throw new Error("eager-reference composition is incomplete");
+function eagerAlgorithms(children: Readonly<Record<string, ResolvedAlgorithm>>) {
+  const actionCompilation = configured(children.actionCompilation, "actionCompilation");
+  const agentCognition = configured(children.agentCognition, "agentCognition");
+  const interactionGrounding = configured(children.interactionGrounding, "interactionGrounding");
+  const reactionResolution = configured(children.reactionResolution, "reactionResolution");
+  const truthResolution = configured(children.truthResolution, "truthResolution");
+  const observationRendering = configured(children.observationRendering, "observationRendering");
+  const candidateSelection = child(actionCompilation, "candidateSelection") as CandidateSelectionRoleAlgorithm;
+  if (!("runtime" in candidateSelection)) {
+    throw new Error("candidate-selection implementation must expose its selected runtime");
   }
-  const candidateSelection = actionCompilation.children.candidateSelection;
-  if (!candidateSelection) throw new Error("eager-reference candidate selection is missing");
-  const candidateRetrieval = candidateSelection.id === "full-catalog"
-    ? { mode: "off" as const }
-    : {
+  return { actionCompilation, agentCognition, interactionGrounding, reactionResolution, truthResolution, observationRendering, candidateSelection };
+}
+
+function eagerConfig(children: Readonly<Record<string, ResolvedAlgorithm>>): EagerReferenceAlgorithmConfig {
+  const algorithms = eagerAlgorithms(children);
+  const candidateRetrieval = algorithms.candidateSelection.runtime
+    ? {
         mode: "runtime" as const,
         runtimeVersion: ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
-        encoderFingerprint: String(candidateSelection.config.encoderFingerprint),
+        encoderFingerprint: String(algorithms.candidateSelection.config.encoderFingerprint),
         budgetRatio: 0.2 as const,
-      };
+      }
+    : { mode: "off" as const };
   return {
-    actionCompilationMaxSlots: configNumber(actionCompilation.children.batching!, "maxSlots"),
-    agentMindMaxSlots: configNumber(agentCognition.children.batching!, "maxSlots"),
-    reactionMaxSlots: configNumber(reactionResolution.children.scheduling!, "maxConcurrent"),
-    groundingMaxSlots: configNumber(interactionGrounding.children.scheduling!, "maxConcurrent"),
-    truthBatchMaxSlots: configNumber(truthResolution.children.batching!, "maxSlots"),
+    actionCompilationMaxSlots: configNumber(child(algorithms.actionCompilation, "batching"), "maxSlots"),
+    agentMindMaxSlots: configNumber(child(algorithms.agentCognition, "batching"), "maxSlots"),
+    reactionMaxSlots: configNumber(child(algorithms.reactionResolution, "scheduling"), "maxConcurrent"),
+    groundingMaxSlots: configNumber(child(algorithms.interactionGrounding, "scheduling"), "maxConcurrent"),
+    truthBatchMaxSlots: configNumber(child(algorithms.truthResolution, "batching"), "maxSlots"),
     candidateRetrieval,
+  };
+}
+
+function recoveryAttempts(algorithm: ConfiguredRoleAlgorithm): number {
+  return configNumber(child(algorithm, "recovery"), "maxRepairs");
+}
+
+function eagerComponents(
+  children: Readonly<Record<string, ResolvedAlgorithm>>,
+  services: Readonly<WorldExecutionAlgorithmServices>,
+  config: Readonly<EagerReferenceAlgorithmConfig>,
+): EagerReferenceComponents {
+  const algorithms = eagerAlgorithms(children);
+  const agentCognition = algorithms.agentCognition as AgentCognitionRoleAlgorithm;
+  const actionCompilation = algorithms.actionCompilation as ActionCompilationRoleAlgorithm;
+  const interactionGrounding = algorithms.interactionGrounding as InteractionGroundingRoleAlgorithm;
+  const truthResolution = algorithms.truthResolution as TruthResolutionRoleAlgorithm;
+  const observationRendering = algorithms.observationRendering as ObservationRenderingRoleAlgorithm;
+  if (typeof agentCognition.create !== "function" || typeof actionCompilation.compile !== "function" ||
+    typeof interactionGrounding.ground !== "function" || typeof truthResolution.create !== "function" ||
+    typeof observationRendering.create !== "function") {
+    throw new Error("eager-reference composition resolved incompatible Role implementations");
+  }
+  const onsetPerception = child(algorithms.reactionResolution, "onsetPerception") as OnsetPerceptionRoleAlgorithm;
+  const reactionDecision = child(algorithms.reactionResolution, "reactionDecision") as ReactionDecisionRoleAlgorithm;
+  if (typeof onsetPerception.create !== "function" || typeof reactionDecision.create !== "function") {
+    throw new Error("eager-reference reaction or candidate composition is incompatible");
+  }
+  const symbolRepair = child(algorithms.actionCompilation, "symbolRepair") as SymbolRepairRoleAlgorithm;
+  if (!symbolRepair.policy) throw new Error("symbol-repair implementation must expose its policy");
+  const rulePackages = services.rulePackages ?? createCoreRulePackageRegistry();
+  const truthProvider = new TruthBatchCoordinator(services.provider, config.truthBatchMaxSlots);
+  return {
+    provider: truthProvider,
+    agentCognition: agentCognition.create(services.provider, recoveryAttempts(agentCognition)),
+    actionCompilation: actionCompilation.compile,
+    interactionGrounding: interactionGrounding.ground,
+    onsetPerception: onsetPerception.create(truthProvider, rulePackages, recoveryAttempts(algorithms.reactionResolution)),
+    reactionDecision: reactionDecision.create(services.provider, recoveryAttempts(algorithms.reactionResolution)),
+    truthResolution: truthResolution.create(truthProvider, rulePackages, recoveryAttempts(truthResolution)),
+    observationRendering: observationRendering.create(truthProvider),
+    symbolRepair: symbolRepair.policy,
   };
 }
 
@@ -249,12 +405,19 @@ export function registerBuiltinAlgorithms(
       { name: "truthResolution", role: "truth-resolution" },
       { name: "observationRendering", role: "observation-rendering" },
     ],
-    create: ({ ref, services }) => new EagerReferenceAlgorithm(
-      services.provider,
-      services.rulePackages,
-      eagerConfig(ref as AlgorithmRef<"world-execution">),
-      services.actionCompilationRetrieval,
-    ),
+    create: ({ ref, children, services }) => {
+      const config = eagerConfig(children);
+      const algorithms = eagerAlgorithms(children);
+      const candidateSelection = algorithms.candidateSelection;
+      return new EagerReferenceAlgorithm(
+        services.provider,
+        services.rulePackages,
+        config,
+        candidateSelection.runtime,
+        eagerComponents(children, services, config),
+        algorithmManifest(ref as AlgorithmRef<"world-execution">),
+      );
+    },
   });
   if (!registry.has(DEFAULT_ALGORITHM_REF)) throw new Error("built-in eager-reference composition did not register");
   return registry;

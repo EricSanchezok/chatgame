@@ -106,7 +106,7 @@ function lazyVariantRuntime(input: {
   return {
     runtime: {
       version: input.config.runtimeVersion,
-      role: "action-compilation",
+      role: "candidate-selection",
       async retrieveBatch(request) {
         return withSafetyBoundary(async () => (await load()).runtime.retrieveBatch(request));
       },

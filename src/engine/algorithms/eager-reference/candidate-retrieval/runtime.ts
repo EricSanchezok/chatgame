@@ -48,7 +48,7 @@ export interface ActionCompilationRetrievalResult {
 
 export interface ActionCompilationRetrievalRuntime {
   readonly version: string;
-  readonly role: "action-compilation";
+  readonly role: "candidate-selection";
   retrieveBatch(input: {
     worldContentHash: string;
     fullContext: Readonly<Record<string, unknown>>;
@@ -132,7 +132,7 @@ export function createActionCompilationRetrievalRuntime(
   }
   return {
     version: options.version,
-    role: "action-compilation",
+    role: "candidate-selection",
     async retrieveBatch({ worldContentHash, fullContext, slotIndices, signal }) {
       throwIfAborted(signal);
       const catalog = object(fullContext.referenceCatalog);

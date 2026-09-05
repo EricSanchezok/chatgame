@@ -2,8 +2,9 @@ import { modelRoles, type ModelRole } from "../models/model-catalog";
 import type { ActionOutcome, WorldDeltaOperation } from "../contracts/model";
 import type { ActivityTransition, TemporalBoundaryReason } from "../mechanics/temporal";
 import { ACTION_COMPILATION_PROJECTION } from "../contracts/model-context";
+import { ALGORITHM_ROLES, type AlgorithmRole } from "../algorithms/composition";
 
-export const RUNTIME_EVENT_SCHEMA_VERSION = 3 as const;
+export const RUNTIME_EVENT_SCHEMA_VERSION = 4 as const;
 
 export type RuntimeObservabilityMode = "off" | "metrics" | "full";
 export type RuntimeEventLevel = "debug" | "info" | "warn" | "error";
@@ -64,6 +65,15 @@ export interface RuntimeEventInput {
   hashes?: Readonly<Record<string, string>>;
   payload?: unknown;
   error?: RuntimeError;
+  algorithm?: AlgorithmNodeRuntimeIdentity;
+}
+
+export interface AlgorithmNodeRuntimeIdentity {
+  path: string;
+  role: AlgorithmRole;
+  id: string;
+  version: string;
+  manifestHash: string;
 }
 
 type AlgorithmTelemetryBase = Omit<
@@ -643,6 +653,21 @@ function validateStableRuntimeEvent(input: RuntimeEventInput): void {
   }
   if (input.correlation?.modelRole !== undefined && !modelRoles.includes(input.correlation.modelRole)) {
     throw new Error(`runtime model role is invalid: ${String(input.correlation.modelRole)}`);
+  }
+  if (input.algorithm) {
+    if (!/^root(?:\.[a-z][A-Za-z0-9]*)*$/u.test(input.algorithm.path)) {
+      throw new Error(`runtime algorithm node path is invalid: ${input.algorithm.path}`);
+    }
+    if (!ALGORITHM_ROLES.includes(input.algorithm.role)) {
+      throw new Error(`runtime algorithm role is invalid: ${String(input.algorithm.role)}`);
+    }
+    for (const [field, value] of Object.entries({
+      id: input.algorithm.id,
+      version: input.algorithm.version,
+      manifestHash: input.algorithm.manifestHash,
+    })) {
+      if (typeof value !== "string" || !value.trim()) throw new Error(`runtime algorithm ${field} is required`);
+    }
   }
   if (input.durationMs !== undefined && (!Number.isFinite(input.durationMs) || input.durationMs < 0)) {
     throw new Error(`runtime event duration must be a non-negative finite number: ${input.event}`);

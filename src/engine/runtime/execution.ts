@@ -41,7 +41,6 @@ import type {
 } from "../mechanics/shared-activity-resources";
 import type { SharedResourceAdmission } from "../mechanics/shared-resource-allocation";
 import type { ExecutionStageHooks } from "./stages";
-import type { ActionCompilationRetrievalRuntime } from "../algorithms/eager-reference/candidate-retrieval/runtime";
 import {
   AlgorithmRegistry,
   defineAlgorithmRef as defineCompositionRef,
@@ -465,7 +464,9 @@ export interface WorldExecutionAlgorithm {
 export interface WorldExecutionAlgorithmServices {
   provider: StructuredModelProvider;
   rulePackages?: RulePackageRegistry;
-  actionCompilationRetrieval?: ActionCompilationRetrievalRuntime;
+  resources?: {
+    resolve<T>(kind: string, ref: AlgorithmRef): T | undefined;
+  };
 }
 
 export type WorldExecutionAlgorithmFactory = (

@@ -31,7 +31,7 @@ describe("experiment report command", () => {
       });
       const retrievalRuntime = {
         version: "action-compilation-retrieval-runtime-v4",
-        role: "action-compilation" as const,
+        role: "candidate-selection" as const,
         async retrieveBatch(input: { fullContext: Readonly<Record<string, unknown>>; slotIndices: readonly number[] }) {
           const catalog = input.fullContext.referenceCatalog as { candidates: Array<{ candidateKey: string; scope?: { kind?: string; slot?: number } }> };
           const selectedKeysBySlot = new Map(input.slotIndices.map((slot) => [slot, catalog.candidates

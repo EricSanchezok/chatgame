@@ -225,6 +225,25 @@ describe("model context measurements", () => {
     expect(events).toContain("temporal.boundary.reason");
     expect(events).toContain("resolution.outcome.recorded");
     expect(events).toContain("resolution.operation.recorded");
+    const modelEvents = observer.snapshot().filter((event) => event.event.startsWith("model."));
+    expect(modelEvents.length).toBeGreaterThan(0);
+    expect(modelEvents.every((event) => event.schemaVersion === 4 && event.algorithm)).toBe(true);
+    expect(modelEvents).toContainEqual(expect.objectContaining({
+      correlation: expect.objectContaining({ modelRole: "agent-mind" }),
+      algorithm: expect.objectContaining({
+        path: "root.agentCognition",
+        role: "agent-cognition",
+        id: "model-agent-cognition",
+      }),
+    }));
+    expect(modelEvents).toContainEqual(expect.objectContaining({
+      correlation: expect.objectContaining({ modelRole: "action-compilation" }),
+      algorithm: expect.objectContaining({
+        path: "root.actionCompilation",
+        role: "action-compilation",
+        id: "model-action-compilation",
+      }),
+    }));
   });
 
   it("accounts for discarded model work when candidate generation fails", async () => {

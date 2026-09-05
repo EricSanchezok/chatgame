@@ -732,7 +732,13 @@ export class WorldHost {
     return {
       provider: this.options.provider,
       rulePackages: this.options.repository.rulePackages,
-      ...(retrieval ? { actionCompilationRetrieval: retrieval } : {}),
+      ...(retrieval ? {
+        resources: {
+          resolve<T>(kind: string): T | undefined {
+            return kind === "candidate-selection-runtime" ? retrieval as T : undefined;
+          },
+        },
+      } : {}),
     };
   }
 

@@ -26,6 +26,7 @@ import type {
   ExternalReactionInput,
   JsonObject,
   WorldExecutionAlgorithm,
+  AlgorithmManifest,
   WorldStepCandidate,
   WorldStepInput,
   WorldStepPreparation,
@@ -99,6 +100,7 @@ import {
   ACTION_COMPILATION_RETRIEVAL_RUNTIME_VERSION,
   type ActionCompilationRetrievalRuntime,
 } from "./candidate-retrieval/runtime";
+import { DEFAULT_SYMBOL_REPAIR_POLICY, type SymbolRepairPolicy } from "../../contracts/symbol-repair";
 
 export type EagerReferenceCandidateRetrievalConfig =
   | { mode: "off" }
@@ -692,8 +694,20 @@ interface ReactionResolutionBatch {
   audits: ModelExecutionAudit[];
 }
 
+export interface EagerReferenceComponents {
+  provider: StructuredModelProvider;
+  agentCognition: Pick<AgentMind, "thinkBatch">;
+  actionCompilation: typeof compileActions;
+  interactionGrounding: typeof generateInteractionDependency;
+  onsetPerception: Pick<TruthEngine, "perceiveOnset">;
+  reactionDecision: Pick<AgentMind, "react">;
+  truthResolution: Pick<TruthEngine, "resolve">;
+  observationRendering: Pick<ObservationRenderer, "render">;
+  symbolRepair: Readonly<SymbolRepairPolicy>;
+}
+
 async function resolveAgentReactionRequests(
-  agentMind: AgentMind,
+  agentMind: EagerReferenceComponents["reactionDecision"],
   planningState: Readonly<SimulationState>,
   newActions: readonly AgentActionProposal[],
   reactionRequests: readonly ReactionRequest[],
@@ -916,9 +930,14 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
   readonly algorithmIdentity;
   readonly manifest;
   readonly config: Readonly<NormalizedEagerReferenceAlgorithmConfig>;
-  private readonly truthEngine: TruthEngine;
-  private readonly agentMind: AgentMind;
-  private readonly observationRenderer: ObservationRenderer;
+  private readonly truthEngine: EagerReferenceComponents["truthResolution"];
+  private readonly onsetPerception: EagerReferenceComponents["onsetPerception"];
+  private readonly agentMind: EagerReferenceComponents["agentCognition"];
+  private readonly reactionMind: EagerReferenceComponents["reactionDecision"];
+  private readonly observationRenderer: EagerReferenceComponents["observationRendering"];
+  private readonly actionCompiler: EagerReferenceComponents["actionCompilation"];
+  private readonly interactionGrounder: EagerReferenceComponents["interactionGrounding"];
+  private readonly symbolRepairPolicy: Readonly<SymbolRepairPolicy>;
   private readonly provider: StructuredModelProvider;
   private readonly rulePackages: RulePackageRegistry;
   private readonly actionCompilationRetrieval?: ActionCompilationRetrievalRuntime;
@@ -928,16 +947,18 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     rulePackages?: RulePackageRegistry,
     config: Readonly<EagerReferenceAlgorithmConfig> = DEFAULT_EAGER_REFERENCE_CONFIG,
     actionCompilationRetrieval?: ActionCompilationRetrievalRuntime,
+    components?: Readonly<EagerReferenceComponents>,
+    manifest?: AlgorithmManifest,
   ) {
     this.config = Object.freeze(parseEagerReferenceAlgorithmConfig(config));
-    this.manifest = createEagerReferenceManifest(this.config);
+    this.manifest = manifest ?? createEagerReferenceManifest(this.config);
     this.algorithmIdentity = Object.freeze({
       role: this.manifest.role,
       id: this.manifest.id,
       version: this.manifest.version,
       contractVersion: this.manifest.contractVersion,
     });
-    this.provider = new TruthBatchCoordinator(provider, this.config.truthBatchMaxSlots);
+    this.provider = components?.provider ?? new TruthBatchCoordinator(provider, this.config.truthBatchMaxSlots);
     this.rulePackages = rulePackages ?? createCoreRulePackageRegistry();
     if (this.config.candidateRetrieval.mode === "runtime") {
       if (!actionCompilationRetrieval) throw new Error("candidate retrieval runtime is required by the eager-reference algorithm config");
@@ -948,9 +969,27 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       throw new Error("candidate retrieval runtime was supplied to an algorithm configured off");
     }
     this.actionCompilationRetrieval = actionCompilationRetrieval;
-    this.truthEngine = new TruthEngine(this.provider, { rulePackages: this.rulePackages });
-    this.agentMind = new AgentMind(provider);
-    this.observationRenderer = new ObservationRenderer(this.provider);
+    if (components) {
+      this.agentMind = components.agentCognition;
+      this.reactionMind = components.reactionDecision;
+      this.actionCompiler = components.actionCompilation;
+      this.interactionGrounder = components.interactionGrounding;
+      this.onsetPerception = components.onsetPerception;
+      this.truthEngine = components.truthResolution;
+      this.observationRenderer = components.observationRendering;
+      this.symbolRepairPolicy = components.symbolRepair;
+    } else {
+      const agentMind = new AgentMind(provider);
+      const truthEngine = new TruthEngine(this.provider, { rulePackages: this.rulePackages });
+      this.agentMind = agentMind;
+      this.reactionMind = agentMind;
+      this.actionCompiler = compileActions;
+      this.interactionGrounder = generateInteractionDependency;
+      this.onsetPerception = truthEngine;
+      this.truthEngine = truthEngine;
+      this.observationRenderer = new ObservationRenderer(this.provider);
+      this.symbolRepairPolicy = DEFAULT_SYMBOL_REPAIR_POLICY;
+    }
   }
 
   private emitSlotBatchMetrics(
@@ -1367,13 +1406,15 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     const actionOverlapStartedAt = performance.now();
     const actionCompilationStage = executionStage("action-compilation");
     await context.stages?.before(actionCompilationStage);
-    const knownActionCompilation = compileActions(
+    const knownActionCompilation = this.actionCompiler(
       this.provider,
       planningState,
       knownActions,
       this.actionCompilationScope(context),
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
+      2,
+      this.symbolRepairPolicy,
     );
     const resumedMindBatchPromise = this.thinkBatchWithFallback(
       source,
@@ -1404,7 +1445,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     if (new Set(newActions.map((action) => action.id)).size !== newActions.length) {
       throw new Error("step preparation produced duplicate action identities");
     }
-    const resumedActionCompilationBatch = await compileActions(
+    const resumedActionCompilationBatch = await this.actionCompiler(
       this.provider,
       planningState,
       resumedActions,
@@ -1412,6 +1453,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
       2,
+      this.symbolRepairPolicy,
     );
     await context.stages?.after(actionCompilationStage);
     if (knownActions.length > 0) {
@@ -1536,7 +1578,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     );
     validateObservations(source, directReactionRequests.map((request) => request.stimulus), source.step + 1);
     const directReactionPromise = resolveAgentReactionRequests(
-      this.agentMind,
+      this.reactionMind,
       planningState,
       newActions,
       directReactionRequests,
@@ -1546,7 +1588,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     );
     const onsetPerceptionPromise = perceptionReactionCandidates.length === 0
       ? Promise.resolve(null)
-      : this.truthEngine.perceiveOnset({
+      : this.onsetPerception.perceiveOnset({
           definition: input.definition,
           state: source,
           actions: structuredClone(newActions),
@@ -1604,7 +1646,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       ...perceptionReactionRequests,
     ].map((request) => request.stimulus), source.step + 1);
     const perceptionReactionResults = await resolveAgentReactionRequests(
-      this.agentMind,
+      this.reactionMind,
       planningState,
       newActions,
       perceptionReactionRequests,
@@ -1761,7 +1803,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
     }
 
     const replacementDecisions = reactionDecisions.filter((decision) => decision.kind === "replace");
-    const replacementCompilationBatch = await compileActions(
+    const replacementCompilationBatch = await this.actionCompiler(
       this.provider,
       planningState,
       replacementDecisions.map((decision) => decision.replacementAction),
@@ -1769,6 +1811,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
       input.definition.modelProfiles.grounding,
       this.config.actionCompilationMaxSlots,
       2,
+      this.symbolRepairPolicy,
     );
     if (replacementDecisions.length > 0) {
       this.emitSlotBatchMetrics(
@@ -1956,7 +1999,7 @@ export class EagerReferenceAlgorithm implements WorldExecutionAlgorithm {
           audit: null,
         };
       }
-      return generateInteractionDependency(
+      return this.interactionGrounder(
         this.provider,
         planningState,
         action,

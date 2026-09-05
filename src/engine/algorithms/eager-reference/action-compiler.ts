@@ -933,6 +933,7 @@ export async function compileActions(
   profileId: string,
   maxSlots: number,
   repairAttempts = 2,
+  symbolRepairPolicy?: Readonly<import("../../contracts/symbol-repair").SymbolRepairPolicy>,
 ): Promise<ActionCompilationResult> {
   if (actions.length === 0) {
     return {
@@ -1089,6 +1090,7 @@ export async function compileActions(
           preprocessOutput: (raw) => preprocessActionCompilationSymbols({
             value: raw,
             resolver: batchActionResolver,
+            ...(symbolRepairPolicy ? { policy: symbolRepairPolicy } : {}),
             ...(retrieval ? { allowedCandidateKeysBySlot: retrieval.selectedKeysBySlot } : {}),
           }),
         });

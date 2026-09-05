@@ -35,7 +35,7 @@ function runtimeEvents(): RuntimeEvent[] {
   let sequence = 0;
   const at = (milliseconds: number) => new Date(Date.parse("2026-08-30T09:00:00.000Z") + milliseconds).toISOString();
   const event = (milliseconds: number, input: RuntimeEventInput): RuntimeEvent => ({
-    schemaVersion: 3,
+    schemaVersion: 4,
     sequence: ++sequence,
     timestamp: at(milliseconds),
     level: input.level ?? "info",
@@ -155,7 +155,7 @@ function runtimeEvents(): RuntimeEvent[] {
 function lineageRuntimeEvents(): RuntimeEvent[] {
   let sequence = 0;
   const event = (milliseconds: number, input: RuntimeEventInput): RuntimeEvent => ({
-    schemaVersion: 3,
+    schemaVersion: 4,
     sequence: ++sequence,
     timestamp: new Date(Date.parse("2026-08-30T09:00:00.000Z") + milliseconds).toISOString(),
     level: input.level ?? "info",
@@ -333,7 +333,7 @@ describe("world inspector model invocation projection", () => {
   it("projects trusted Action Compilation candidate resolution evidence", () => {
     const events = runtimeEvents();
     events.push({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sequence: 99,
       timestamp: "2026-08-30T09:00:03.400Z",
       level: "info",
@@ -402,7 +402,7 @@ describe("world inspector model invocation projection", () => {
   it("projects deterministic symbol repair evidence and aggregate counts", () => {
     const events = runtimeEvents().filter((event) => event.event !== "model.structured_output.rejected");
     events.push({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sequence: 100,
       timestamp: "2026-08-30T09:00:03.500Z",
       level: "info",
